@@ -52,7 +52,7 @@ The Lending API provides a comprehensive set of RESTful HTTP endpoints that enab
 - RESTful API design
 
 **GitHub Repository:**  
-https://github.com/burrowHQ/burrow-sdk-pyth
+[https://github.com/burrowHQ/burrow-sdk-pyth](https://github.com/rhea-finance/burrow-sdk-python)
 
 ---
 
