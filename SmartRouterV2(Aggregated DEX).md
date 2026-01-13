@@ -105,6 +105,9 @@ test.near will receive $0.8
 rhea will receive $0.2
 ```
 
+Withdraw App Fee:
+[see here](https://github.com/rhea-finance/rhea-sdk-docs/blob/main/SmartRouterV2(Aggregated%20DEX).md#withdraw)
+
 **Note That:**
 
 **The protocol defines six fee whitelist tokens(NEAR, USDC, USDT, USDC.e, USDT.e, RHEA).**
