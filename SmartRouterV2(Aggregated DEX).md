@@ -133,6 +133,8 @@ Before swapping, ensure all tokens are registered.
 
 ## 5.1 Register on Aggregate Dex
 
+user and appFeeRecipient account, registration is required on Aggregate Dex.
+
 ### Check Registration
 
 near view aggregatedex.near query_user_tokens_registered '{"user":"xx","tokens":["wrap.near","17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1"]}'
