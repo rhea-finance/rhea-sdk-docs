@@ -2,9 +2,9 @@
 
 Welcome to the Rhea SDK documentation hub. This repository serves as a centralized resource for developers looking to integrate with Rhea Finance's various SDKs and tools. Below you'll find comprehensive information about each available SDK, including their core functionalities, GitHub repositories, and demo applications.
 
-## Available SDKs
+# Available SDKs
 
-### 1. Rhea SDK
+## 1. Rhea SDK
 
 **Description:**  
 The Rhea SDK provides a comprehensive set of methods and utilities that enable developers to quickly implement DEX (Decentralized Exchange) swap functionality for the Rhea protocol. This SDK simplifies interaction with Rhea's Automated Market Maker (AMM) system, offering streamlined token swapping capabilities.
@@ -20,9 +20,25 @@ https://github.com/rhea-finance/rhea-sdk
 **Important Notice:**  
 ⚠️ This SDK is provided by a third party, and we do not take any responsibility for any losses caused by the use of this SDK.
 
+### 1.1 SmartRouterV2(Aggregate Dex)
+**Description:**  
+
+[Aggregated DEX](https://github.com/rhea-finance/rhea-sdk-docs/blob/main/SmartRouterV2(Aggregated%20DEX).md) is a multi-liquidity-pool aggregated trading system running on the NEAR blockchain.
+It works through the collaboration of an off-chain routing algorithm and on-chain aggregation contracts, providing users with optimal swap paths and execution results.
+
+Aggregated DEX is currently not part of the SDK and needs to be integrated independently.
+
+**Supported Pool Types:**
+- AMM Pools
+- Stable Pools
+- ALMM Pools
+- CLMM Pools
+- Delta Orders(Coming Soon)
+
+
 ---
 
-### 2. Cross-Chain SDK
+## 2. Cross-Chain SDK
 
 **Description:**  
 The Cross-Chain SDK is a unified lending solution that enables seamless lending operations across multiple blockchain networks. It provides a single interface for developers to interact with lending protocols on various chains, including EVM-compatible chains, Solana, Bitcoin, ZEC, and NEAR.
@@ -41,7 +57,7 @@ https://github.com/rhea-finance/cross-chain-sdk
 
 ---
 
-### 3. Lending API
+## 3. Lending API
 
 **Description:**  
 The Lending API provides a comprehensive set of RESTful HTTP endpoints that enable developers to retrieve all lending-related data and perform lending operations programmatically. This API serves as a complete data access layer for lending protocol information.
@@ -56,6 +72,6 @@ https://github.com/rhea-finance/burrow-sdk-python
 
 ---
 
-## License
+# License
 
 Please refer to the individual SDK repositories for their respective license information.
