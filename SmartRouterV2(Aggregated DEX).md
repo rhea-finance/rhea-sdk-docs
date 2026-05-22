@@ -168,7 +168,7 @@ Swaps must be triggered via `ft_transfer_call`.
 Caller: tokenIn contract  
 Receiver: aggregatedex.near  
 Message: msg + signature
-Gas required: >= 270 Tgas  
+Gas required: == 300 Tgas  
 depositYocto: 1
 
 for example:
