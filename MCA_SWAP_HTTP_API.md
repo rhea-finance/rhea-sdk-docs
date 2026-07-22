@@ -1,42 +1,42 @@
-# MCA Swap HTTP API 调用文档
+# MCA Swap HTTP API Guide
 
-本文描述 MCA 在统一 Swap 服务中的 HTTP 接口、请求字段、响应字段和完整调用顺序。
+This document describes the HTTP endpoints, request fields, response fields, and complete call sequences for MCA flows in the unified Swap service.
 
-适用范围：
+Scope:
 
-- 普通链钱包向 MCA deposit。
-- MCA withdraw 到绑定 NEAR 钱包。
-- MCA withdraw 到其他链，通过 Intents / multichain relayer 提交。
-- 交易 report、order status 和 history。
+- Depositing from a regular chain wallet into an MCA.
+- Withdrawing from an MCA to its bound NEAR wallet.
+- Withdrawing from an MCA to another chain through Intents / the multichain relayer.
+- Transaction reporting, order status, and history.
 
-不包含 MCA 创建、钱包绑定、借贷、portfolio 或资产查询接口。
+This document does not cover MCA creation, wallet binding, lending, portfolio, or asset-query endpoints.
 
-## Base URL 与认证
+## Base URL and Authentication
 
-生产 API 域名固定为：
+The production API origin is fixed:
 
 ```text
 https://api.rhea.finance
 ```
 
-所有 Swap API 均使用 `https://api.rhea.finance/api/swap/*`。示例中的 access token 用以下变量表示：
+All Swap APIs use `https://api.rhea.finance/api/swap/*`. Examples represent the access token with the following variable:
 
 ```bash
 ACCESS_TOKEN="<your-access-token>"
 ```
 
-请求头：
+Request headers:
 
 ```http
 Content-Type: application/json
 Authorization: Bearer <ACCESS_TOKEN>
 ```
 
-不要把 access token、钱包私钥、助记词或固定 JWT 写入前端源码。
+Never embed access tokens, wallet private keys, seed phrases, or fixed JWTs in frontend source code.
 
-## 通用响应 Envelope
+## Common Response Envelope
 
-所有接口返回统一 JSON envelope：
+All endpoints return a unified JSON envelope:
 
 ```json
 {
@@ -46,15 +46,15 @@ Authorization: Bearer <ACCESS_TOKEN>
 }
 ```
 
-字段：
+Fields:
 
-| 字段 | 类型 | 说明 |
+| Field | Type | Description |
 | --- | --- | --- |
-| `code` | number | `0` 表示业务成功；非零表示业务错误 |
-| `msg` | string | 错误或提示信息 |
-| `data` | object | 接口数据；不同接口结构不同 |
+| `code` | number | `0` indicates business success; a non-zero value indicates a business error |
+| `msg` | string | Error or informational message |
+| `data` | object | Endpoint-specific response data |
 
-调用方需要同时检查 HTTP status 和 `code`：
+Callers must check both the HTTP status and `code`:
 
 ```ts
 async function swapApi<T>(path: string, init: RequestInit): Promise<T> {
@@ -80,24 +80,24 @@ async function swapApi<T>(path: string, init: RequestInit): Promise<T> {
 }
 ```
 
-## 先判断：这次请求是否涉及 MCA
+## First Decide Whether the Request Involves an MCA
 
-`mca` 不是 `/quote` 或 `/swap` 的通用必填字段。调用方必须先根据资金实际来源和目标判断业务类型，不能看到用户有 MCA 就一律传入 `mca`。
+`mca` is not a generally required field for `/quote` or `/swap`. The caller must determine the business flow from the actual source and destination of funds. Do not include `mca` merely because the user owns an MCA.
 
-这里的“来源是 MCA”是指本次卖出的余额从 MCA 账户扣除；“目标是 MCA”是指本次买到的资产最终存入 MCA。HTTP API 中 `tokenIn`、`tokenOut` 始终传真实链上 token id，不传 UI 内部的 `mca:xxx` 标识。
+"Source is MCA" means the sold balance is deducted from the MCA account. "Destination is MCA" means the purchased asset is ultimately deposited into the MCA. In the HTTP API, `tokenIn` and `tokenOut` must always contain real on-chain token IDs, never the UI-only `mca:xxx` identifier.
 
 ```mermaid
 flowchart TD
-  A["准备调用 Swap API"] --> B{"来源或目标是否为 MCA 余额？"}
-  B -->|"都不是"| N["普通 Swap：不传 mca"]
-  B -->|"来源和目标都是"| U["当前 MCA 扩展未定义：不要提交"]
-  B -->|"只有目标是 MCA"| D["MCA Deposit：mca.flow = deposit"]
-  B -->|"只有来源是 MCA"| W{"目标是否为已绑定的 NEAR 账户？"}
-  W -->|"是"| WN["MCA Withdraw / NEAR 直执行"]
-  W -->|"否"| WR["MCA Withdraw / Intents Relayer"]
+  A["Prepare to call the Swap API"] --> B{"Is the source or destination balance in an MCA?"}
+  B -->|"Neither"| N["Regular Swap: omit mca"]
+  B -->|"Both"| U["Not defined by the current MCA extension: do not submit"]
+  B -->|"Destination only"| D["MCA Deposit: mca.flow = deposit"]
+  B -->|"Source only"| W{"Is the destination the bound NEAR account?"}
+  W -->|"Yes"| WN["MCA Withdraw / direct NEAR execution"]
+  W -->|"No"| WR["MCA Withdraw / Intents Relayer"]
 ```
 
-等价的程序判断：
+Equivalent programmatic classification:
 
 ```ts
 function classifySwap(input: {
@@ -122,42 +122,42 @@ function classifySwap(input: {
 }
 ```
 
-### 四种流程的请求差异
+### Request Differences Between the Four Flows
 
-| 流程 | `/quote` 的 `mca` | `/swap` | `/swap` 的 `mcaRelayer` | MCA 离线消息签名 | 链上钱包签名 | `/report` | `/order-status` |
+| Flow | `mca` in `/quote` | `/swap` | `mcaRelayer` in `/swap` | MCA off-chain message signature | On-chain wallet signature | `/report` | `/order-status` |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 普通 Swap | 不传 | 构建普通交易 | 不传 | 不需要 | 执行 `tx` 时需要；签名订单例外见下文 | 主交易提交成功后 | 仅有 status key 和 router 时 |
-| MCA Deposit | 必传，`flow=deposit` | 构建来源链交易，并透传相同 `mca` | 不传 | 不需要 | 来源链钱包签 `approve`/主交易 | 主交易拿到 tx hash 后 | 跨链且有 orderId 时 |
-| MCA Withdraw 到绑定 NEAR | 必传，`flow=withdraw` | **不调用** | 不传 | 不需要 | NEAR 钱包签 `exec` 交易 | NEAR tx hash 产生后 | preview 有 deposit address 且有 router 时 |
-| MCA Withdraw 到其他链 | 必传，`flow=withdraw` | 提交 relayer request | 必传 | **需要**，签 API 原始 `messageToSign` | 通常不再广播本地链交易 | `/swap` 返回 orderId 后 | 使用 orderId + router |
+| Regular Swap | Omit | Build a regular transaction | Omit | Not required | Required when executing `tx`; see the signed-order exception below | After the main transaction is submitted successfully | Only when both a status key and router exist |
+| MCA Deposit | Required, `flow=deposit` | Build the source-chain transaction and pass through the same `mca` | Omit | Not required | Source-chain wallet signs `approve` and/or the main transaction | After obtaining the main transaction hash | When cross-chain and an orderId exists |
+| MCA Withdraw to bound NEAR | Required, `flow=withdraw` | **Not called in the recommended direct flow** | Omit | Not required | NEAR wallet signs the `exec` transaction | After obtaining the NEAR transaction hash | When the preview has a deposit address and a router exists |
+| MCA Withdraw to another chain | Required, `flow=withdraw` | Submit a relayer request | Required | **Required**; sign the exact API `messageToSign` | Usually no local-chain transaction is broadcast | After `/swap` returns an orderId | Use orderId + router |
 
-### 不要混淆三类“签名”
+### Do Not Confuse the Three Signature Types
 
-- 普通交易签名：钱包签 `/swap` 返回的链交易，不产生 `mcaRelayer.signature`。
-- 普通 Swap 的签名订单：当 `/swap` 返回 `executionType: "signature"` 和 `signingRequest` 时，按该对象签名后调用 `/api/swap/order-submit`；这不是 MCA 签名。
-- MCA relayer 签名：只发生在 `mcaWithdrawToIntents` 分支，结果放进 `mcaRelayer.signature`，不调用 `/api/swap/order-submit`。
+- Regular transaction signature: the wallet signs the chain transaction returned by `/swap`; this does not produce `mcaRelayer.signature`.
+- Regular Swap signed order: when `/swap` returns `executionType: "signature"` and `signingRequest`, sign that object and call `/api/swap/order-submit`. This is not an MCA signature.
+- MCA relayer signature: used only in the `mcaWithdrawToIntents` branch. Put the result in `mcaRelayer.signature`; do not call `/api/swap/order-submit`.
 
-## HTTP 接口概览
+## HTTP Endpoint Overview
 
-| Method | Path | 用途 |
+| Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/swap/quote` | 普通或 MCA quote；MCA withdraw 时可能返回执行 preview |
-| `POST` | `/api/swap/swap` | 构建普通/deposit 交易，或提交 MCA withdraw relayer |
-| `POST` | `/api/swap/report` | tx hash 或 relayer orderId 产生后登记历史 |
-| `GET` | `/api/swap/order-status` | 已提交订单的状态查询 |
-| `GET` | `/api/swap/history` | 按 sender 查询 Swap 历史 |
+| `POST` | `/api/swap/quote` | Get a regular or MCA quote; an MCA withdraw may include an execution preview |
+| `POST` | `/api/swap/swap` | Build a regular/deposit transaction or submit an MCA withdraw relayer request |
+| `POST` | `/api/swap/report` | Register history after obtaining a transaction hash or relayer orderId |
+| `GET` | `/api/swap/order-status` | Query the status of a submitted order |
+| `GET` | `/api/swap/history` | Query Swap history by sender/search value |
 
-`POST /api/swap/order-submit` 只用于 CoW 等普通签名订单，不是 MCA deposit/withdraw 的必需接口。
+`POST /api/swap/order-submit` is only used for regular signed orders such as CoW. It is not required for MCA deposit or withdraw flows.
 
-支持 Token 元数据使用独立接口 `GET /get_multichain_lending_tokens_data`，不在 `/api/swap/*` 路径下，详见下文“支持 Token 查询接口”。
+Supported-token metadata is provided by the separate `GET /get_multichain_lending_tokens_data` endpoint outside `/api/swap/*`. See "Supported Token Query Endpoint" below.
 
-## Chain ID 与 Token ID
+## Chain IDs and Token IDs
 
-### 完整支持链清单
+### Complete Supported Chain List
 
-下面是 `multi-chain-lending` Trade 当前产品级支持清单，共 18 个主网。`fromChain` / `toChain` 必须使用“HTTP API chain id”，查询 Token 时则使用“Token 查询 alias”。
+The following is the current product-level support list used by `multi-chain-lending` Trade. It includes 18 mainnets. Use the "HTTP API chain ID" for `fromChain` / `toChain`, and the "Token query alias" when querying tokens.
 
-| 链 | 类型 | HTTP API chain id | Token 查询 alias | SDK ChainRef |
+| Chain | Type | HTTP API chain ID | Token query alias | SDK ChainRef |
 | --- | --- | --- | --- | --- |
 | Ethereum | EVM | `1` | `eth` | `eip155:1` |
 | BNB Smart Chain | EVM | `56` | `bsc` | `eip155:56` |
@@ -170,45 +170,45 @@ function classifySwap(input: {
 | Polygon PoS | EVM | `137` | `pol` | `eip155:137` |
 | Gnosis Chain | EVM | `100` | `gnosis` | `eip155:100` |
 | Plasma | EVM | `9745` | `plasma` | `eip155:9745` |
-| Solana | 非 EVM | `solana` | `sol` | `solana:mainnet` |
-| Bitcoin | 非 EVM | `btc` | `btc` | `bitcoin:mainnet` |
-| NEAR | 非 EVM | `near` | `near` | `near:mainnet` |
-| Zcash | 非 EVM | `zcash` | `zcash`、兼容 `zec` | `zcash:mainnet` |
-| Aptos | 非 EVM | `aptos` | `aptos` | `aptos:mainnet` |
-| Tron | 非 EVM | `tron` | `tron` | `tron:mainnet` |
-| Sui | 非 EVM | `sui` | `sui` | `sui:mainnet` |
+| Solana | Non-EVM | `solana` | `sol` | `solana:mainnet` |
+| Bitcoin | Non-EVM | `btc` | `btc` | `bitcoin:mainnet` |
+| NEAR | Non-EVM | `near` | `near` | `near:mainnet` |
+| Zcash | Non-EVM | `zcash` | `zcash`; `zec` is also accepted | `zcash:mainnet` |
+| Aptos | Non-EVM | `aptos` | `aptos` | `aptos:mainnet` |
+| Tron | Non-EVM | `tron` | `tron` | `tron:mainnet` |
+| Sui | Non-EVM | `sui` | `sui` | `sui:mainnet` |
 
-这里的“支持”表示产品会加载该链 Token 并允许其进入统一 quote 流程，不表示任意两个 Token 之间一定存在可执行路线。路由还会受到实时流动性、router/bridge 能力、金额和服务状态影响，必须以 `POST /api/swap/quote` 是否成功返回有效 `bestQuote.router` 为最终判断。
+"Supported" means the product loads tokens for the chain and allows them into the unified quote flow. It does not guarantee an executable route between every token pair. Routing also depends on live liquidity, router/bridge capabilities, amount, and service availability. A successful `POST /api/swap/quote` response with a valid `bestQuote.router` is the final authority.
 
-### 支持 Token 查询接口
+### Supported Token Query Endpoint
 
-按链查询 Trade 使用的多链 Token 元数据：
+Query the multichain token metadata used by Trade by chain:
 
 ```http
 GET https://api.rhea.finance/get_multichain_lending_tokens_data?chains=<COMMA_SEPARATED_ALIASES>
 ```
 
-该接口不使用 `/api/swap/*` envelope，成功响应直接返回 Token object array。它用于 Token 发现和元数据展示，不用于判断某个交易对当前是否有路线。
+This endpoint does not use the `/api/swap/*` envelope. A successful response directly returns an array of token objects. It is used for token discovery and metadata display, not to determine whether a token pair currently has a route.
 
-Query 参数：
+Query parameters:
 
-| 参数 | 必填 | 说明 |
+| Parameter | Required | Description |
 | --- | --- | --- |
-| `chains` | 是 | 一个或多个 Token 查询 alias，使用英文逗号分隔；alias 必须来自上表 |
+| `chains` | Yes | One or more token query aliases separated by commas; aliases must come from the table above |
 
-查询单条链：
+Query one chain:
 
 ```bash
 curl "https://api.rhea.finance/get_multichain_lending_tokens_data?chains=eth"
 ```
 
-一次查询当前全部产品支持链：
+Query all currently supported product chains in one request:
 
 ```bash
 curl "https://api.rhea.finance/get_multichain_lending_tokens_data?chains=bsc,eth,arb,base,op,bera,monad,xlayer,pol,gnosis,plasma,sol,btc,near,zcash,zec,aptos,tron,sui"
 ```
 
-响应类型：
+Response type:
 
 ```ts
 interface SupportedToken {
@@ -227,33 +227,33 @@ interface SupportedToken {
 type SupportedTokenResponse = SupportedToken[];
 ```
 
-字段说明：
+Field descriptions:
 
-| 字段 | 类型 | 说明 |
+| Field | Type | Description |
 | --- | --- | --- |
-| `assetId` | string | Intents/多链资产 ID；不能不经转换就当作所有链的 `tokenIn` / `tokenOut` |
+| `assetId` | string | Intents/multichain asset ID; do not use it as `tokenIn` / `tokenOut` on every chain without conversion |
 | `decimals` | number | Token decimals |
-| `blockchain` | string | Token 所属链 alias，应与请求的 `chains` 集合匹配 |
-| `symbol` | string | 展示 symbol，不可代替 token address/id |
-| `price` | number | 可选展示用途的当前价格值；不能作为 quote 输出 |
-| `priceUpdatedAt` | string | 价格更新时间 |
-| `contractAddress` | string \| null | 链上 token address；原生资产可能为空 |
-| `icon` | string | 可选图标 URL |
-| `coinType` | string | Sui 等链可能使用的 coin type |
-| `platform` | string | Token 来源平台，例如 Intents/router provider |
+| `blockchain` | string | Chain alias for the token; it should match the requested `chains` set |
+| `symbol` | string | Display symbol; it cannot replace the token address/ID |
+| `price` | number | Current price for optional display purposes; do not use it as quote output |
+| `priceUpdatedAt` | string | Price update timestamp |
+| `contractAddress` | string \| null | On-chain token address; it may be empty for native assets |
+| `icon` | string | Optional icon URL |
+| `coinType` | string | Coin type used by chains such as Sui |
+| `platform` | string | Token source platform, such as an Intents/router provider |
 
-接入规则：
+Integration rules:
 
-- 使用 `blockchain` 将结果归入对应链，不能只按 `symbol` 合并 Token。
-- 发起 quote 时，使用该链实际要求的 token address/id；MCA 侧仍按下文规则移除 `mca:`、`nep141:` 或 `nep245:` 前缀。
-- Token 出现在查询结果中只代表可被产品发现。真正下单前必须请求 `/api/swap/quote`，并校验有效的 `bestQuote.router`。
-- 不要把查询结果长期写死在客户端；可以短时缓存，但应允许刷新。
+- Group results by `blockchain`; never merge tokens solely by `symbol`.
+- When requesting a quote, use the token address/ID required by that chain. On the MCA side, still remove the `mca:`, `nep141:`, or `nep245:` prefix as described below.
+- A token appearing in this response only means it is discoverable by the product. Before placing an order, call `/api/swap/quote` and verify a valid `bestQuote.router`.
+- Do not permanently hard-code the response in the client. Short-lived caching is acceptable, but refresh must remain possible.
 
-### 原生资产 Token ID
+### Native Asset Token IDs
 
-原生资产常用 token id：
+Common token IDs for native assets:
 
-| 链 | 原生资产 token id |
+| Chain | Native asset token ID |
 | --- | --- |
 | EVM | `0x0000000000000000000000000000000000000000` |
 | Solana | `So11111111111111111111111111111111111111112` |
@@ -264,30 +264,30 @@ type SupportedTokenResponse = SupportedToken[];
 | Zcash | `nep141:zec.omft.near` |
 | Sui | `0x2::sui::SUI` |
 
-MCA 侧 token 使用 Swap API/Burrow 接受的 token id，例如 `usdc.token.near`，不要传 UI 内部的 `mca:...` 标识。
+For an MCA-side token, use the token ID accepted by the Swap API/Burrow, such as `usdc.token.near`. Do not send the UI-only `mca:...` identifier.
 
-只要某一侧是 MCA，该侧的 API chain id 固定为 `near`，token id 使用去掉 `mca:`、`nep141:` 或 `nep245:` 前缀后的 NEAR 合约 account id。
+Whenever one side is an MCA, the API chain ID for that side is always `near`, and the token ID is the NEAR contract account ID after removing the `mca:`, `nep141:`, or `nep245:` prefix.
 
-`amountIn`、`amountOut`、`minAmountOut`、`expectedOut` 等 Swap 金额使用 token 最小单位整数字符串。`decreaseCollateralAmountBurrow` 是例外：它使用 Burrow portfolio 返回的 decimal balance string，可以包含小数点，不能用 token decimals 再次换算。
+Swap amounts such as `amountIn`, `amountOut`, `minAmountOut`, and `expectedOut` use integer strings in token base units. `decreaseCollateralAmountBurrow` is the exception: it uses the decimal balance string returned by the Burrow portfolio, may contain a decimal point, and must not be converted again using token decimals.
 
-MCA 流程的地址含义：
+Address semantics in MCA flows:
 
-| 流程 | `sender` | `recipient` |
+| Flow | `sender` | `recipient` |
 | --- | --- | --- |
-| Deposit | 来源链付款钱包 | MCA account id |
-| Withdraw 到绑定 NEAR | MCA account id | 已绑定的 NEAR account id |
-| Withdraw Relayer | MCA account id | 最终外部链/未绑定 NEAR 接收地址 |
+| Deposit | Paying wallet on the source chain | MCA account ID |
+| Withdraw to bound NEAR | MCA account ID | Bound NEAR account ID |
+| Withdraw Relayer | MCA account ID | Final external-chain or unbound NEAR recipient address |
 
-## `mca` 字段什么时候传、怎么传
+## When and How to Send the `mca` Field
 
-只有 `classifySwap` 的结果是 `mca-deposit`、`mca-withdraw-near` 或 `mca-withdraw-relayer` 时，`POST /api/swap/quote` 才传 `mca`。
+Include `mca` in `POST /api/swap/quote` only when `classifySwap` returns `mca-deposit`, `mca-withdraw-near`, or `mca-withdraw-relayer`.
 
-- 普通 Swap：整个 `mca` 字段省略，不能传 `{}` 或 `null`。
-- MCA Deposit：quote 和后续 `/swap` 使用同一个 `mca` 对象。
-- MCA Withdraw 到绑定 NEAR：只在 quote 中传；后续直接执行 preview，不调用 `/swap`。
-- MCA Withdraw 到 relayer：quote 中传；提交 `/swap` 时继续透传，并额外加入 `mcaRelayer`。
+- Regular Swap: omit the entire `mca` field; do not send `{}` or `null`.
+- MCA Deposit: use the same `mca` object for the quote and subsequent `/swap` call.
+- MCA Withdraw to bound NEAR: include it only in the quote; execute the preview directly afterward without calling `/swap` in the recommended flow.
+- MCA Withdraw through the relayer: include it in the quote, pass it through to `/swap`, and add `mcaRelayer`.
 
-Deposit 示例：
+Deposit example:
 
 ```json
 {
@@ -301,7 +301,7 @@ Deposit 示例：
 }
 ```
 
-Withdraw 示例：
+Withdraw example:
 
 ```json
 {
@@ -317,32 +317,32 @@ Withdraw 示例：
 }
 ```
 
-字段条件：
+Field requirements:
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `flow` | `deposit \| withdraw` | MCA 是 | MCA 资金方向；普通 Swap 不存在整个 `mca` 对象 |
-| `mcaFlow` | `deposit \| withdraw` | 否 | `flow` 的兼容别名 |
-| `mcaAccountId` | string | MCA 是 | MCA NEAR account id |
-| `mca_id` | string | 否 | `mcaAccountId` 的兼容别名 |
-| `signer.chain` | string | MCA 是 | 本次控制 MCA 的已绑定钱包链类型 |
-| `signer.identityKey` | string | MCA 是 | 已绑定钱包 identity；relayer 签名钱包必须与它一致 |
-| `depositSigner` | object | 否 | deposit signer 的兼容字段 |
-| `useAsCollateral` | boolean | deposit 是 | deposit 后是否作为 collateral，明确传 `true` 或 `false` |
-| `needDecreaseCollateral` | boolean | withdraw 是 | 当前 token 的 Burrow collateral balance 大于 0 时为 `true` |
-| `decreaseCollateralAmountBurrow` | string | withdraw 是 | `true` 时传当前 token 的完整 collateral balance；`false` 时传 `"0"`。不是 `amountIn` |
-| `withdrawAll` | boolean | 否 | Max，或请求数量达到可用余额的 `99.9999%` 时传 `true`；部分提取省略或传 `false` |
-| `recipientMsgSignatures` | string[] | 条件字段 | 只透传已有的 recipient proof；不是 `messageToSign` 的签名，默认省略 |
-| `depositSignerProofSignatures` | string[] | 条件字段 | 只透传已有的 deposit signer proof；默认省略 |
-| `amountBurrow` | string | 否 | 兼容 amount 字段 |
-| `amount_with_inner_decimal` | string | 否 | 兼容 amount 字段 |
-| `amount_burrow` | string | 否 | 兼容 amount 字段 |
+| `flow` | `deposit \| withdraw` | Yes for MCA | Direction of MCA funds; the entire `mca` object is absent for a regular Swap |
+| `mcaFlow` | `deposit \| withdraw` | No | Compatibility alias for `flow` |
+| `mcaAccountId` | string | Yes for MCA | MCA NEAR account ID |
+| `mca_id` | string | No | Compatibility alias for `mcaAccountId` |
+| `signer.chain` | string | Yes for MCA | Chain type of the bound wallet controlling the MCA for this request |
+| `signer.identityKey` | string | Yes for MCA | Bound-wallet identity; the relayer signing wallet must match it |
+| `depositSigner` | object | No | Compatibility field for the deposit signer |
+| `useAsCollateral` | boolean | Yes for deposit | Whether to use the deposited asset as collateral; explicitly send `true` or `false` |
+| `needDecreaseCollateral` | boolean | Yes for withdraw | `true` when the current token's Burrow collateral balance is greater than zero |
+| `decreaseCollateralAmountBurrow` | string | Yes for withdraw | When `true`, send the current token's full collateral balance; when `false`, send `"0"`. This is not `amountIn` |
+| `withdrawAll` | boolean | No | Send `true` for Max or when the requested amount reaches `99.9999%` of the available balance; omit or send `false` for a partial withdrawal |
+| `recipientMsgSignatures` | string[] | Conditional | Pass through an existing recipient proof only; this is not the `messageToSign` signature and is omitted by default |
+| `depositSignerProofSignatures` | string[] | Conditional | Pass through an existing deposit-signer proof only; omitted by default |
+| `amountBurrow` | string | No | Compatibility amount field |
+| `amount_with_inner_decimal` | string | No | Compatibility amount field |
+| `amount_burrow` | string | No | Compatibility amount field |
 
-新接入优先使用 `flow`、`mcaAccountId` 和 `signer`。`mcaFlow`、`mca_id`、`depositSigner` 和三种 amount 别名只用于兼容旧调用方，不要同时发送新旧字段。
+New integrations should prefer `flow`, `mcaAccountId`, and `signer`. `mcaFlow`, `mca_id`, `depositSigner`, and the three amount aliases exist only for backward compatibility. Do not send both the new and legacy fields together.
 
-`recipientMsgSignatures`、`depositSignerProofSignatures` 与 relayer 的 `messageToSign` 是三类不同数据。当前 Swap 流程不会主动生成前两个数组；只有调用方已经从受信任流程拿到对应 proof 时才透传，不能用本次 relayer signature 填充。
+`recipientMsgSignatures`, `depositSignerProofSignatures`, and the relayer's `messageToSign` are three different kinds of data. The current Swap flow does not generate the first two arrays. Pass them through only when the caller already obtained the corresponding proofs from a trusted flow; never populate them with the current relayer signature.
 
-Withdraw collateral 决策应在 quote 前完成：
+Resolve the withdraw collateral policy before requesting a quote:
 
 ```ts
 const needDecreaseCollateral = decimalGt(collateralBalance, "0");
@@ -353,11 +353,11 @@ const withdrawAll =
   isMax || decimalGte(amountInHuman, decimalMul(availableBalance, "0.999999"));
 ```
 
-这里的 `amountInHuman` 只用于判断是否接近全额；发送给 Swap API 的 `amountIn` 仍然是最小单位整数。
+`amountInHuman` is used only to determine whether the withdrawal is close to the full available balance. The `amountIn` sent to the Swap API remains an integer in base units.
 
-## Quote 接口参考：POST `/api/swap/quote`
+## Quote API Reference: POST `/api/swap/quote`
 
-获取 quote、router、build pass-through 字段和 MCA 执行 preview。
+Retrieves the quote, router, build pass-through fields, and MCA execution preview.
 
 ### Request
 
@@ -367,7 +367,7 @@ Content-Type: application/json
 Authorization: Bearer <ACCESS_TOKEN>
 ```
 
-普通 Swap 基础 body（注意没有 `mca`）：
+Base request body for a regular swap (note that it does not include `mca`):
 
 ```json
 {
@@ -382,23 +382,23 @@ Authorization: Bearer <ACCESS_TOKEN>
 }
 ```
 
-基础字段：
+Base fields:
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `fromChain` | string | 是 | 来源链 API chain id |
-| `toChain` | string | 是 | 目标链 API chain id |
-| `tokenIn` | string | 是 | 来源 token id/address |
-| `tokenOut` | string | 是 | 目标 token id/address |
-| `amountIn` | string | 是 | 最小单位整数字符串 |
-| `slippage` | number | 否 | basis points；`50` 表示 0.5% |
-| `sender` | string | 是 | 来源钱包或 MCA account |
-| `recipient` | string | 否 | 最终接收地址 |
-| `mca` | object | 条件必填 | 只有单侧 MCA deposit/withdraw 时传；普通 Swap 必须省略 |
+| `fromChain` | string | Yes | Source-chain API chain ID |
+| `toChain` | string | Yes | Destination-chain API chain ID |
+| `tokenIn` | string | Yes | Source token ID/address |
+| `tokenOut` | string | Yes | Destination token ID/address |
+| `amountIn` | string | Yes | Integer string in the token's smallest unit |
+| `slippage` | number | No | Basis points; `50` means 0.5% |
+| `sender` | string | Yes | Source wallet or MCA account |
+| `recipient` | string | No | Final recipient address |
+| `mca` | object | Conditional | Include only for a one-sided MCA deposit/withdraw; omit for a regular swap |
 
 ### Response
 
-下面是 MCA Deposit quote 响应示例；普通 Swap 不会要求这些 MCA preview 字段：
+The following is an MCA deposit quote response example. A regular swap does not require these MCA preview fields:
 
 ```json
 {
@@ -423,48 +423,48 @@ Authorization: Bearer <ACCESS_TOKEN>
 }
 ```
 
-公共 response 字段：
+Common response fields:
 
-| 字段 | 类型 | 说明 |
+| Field | Type | Description |
 | --- | --- | --- |
-| `isCrossChain` | boolean | 是否跨链 |
-| `chainType` | string | 来源链 transaction 类型或 `cross-chain` |
-| `bestQuote` | object | 最优 quote；后续 `/swap` 需要透传其中部分字段 |
-| `allQuotes` | object[] | 其他候选 quote |
-| `errors` | unknown | 路由聚合错误信息 |
+| `isCrossChain` | boolean | Whether the route is cross-chain |
+| `chainType` | string | Source-chain transaction type, or `cross-chain` |
+| `bestQuote` | object | Best quote; selected fields must be passed through to `/swap` |
+| `allQuotes` | object[] | Other quote candidates |
+| `errors` | unknown | Routing aggregation errors |
 | `nearDepositTx` | object | MCA deposit preview |
-| `nearDepositTxError` | string | deposit preview 错误 |
-| `nearMcaWithdrawTx` | object | withdraw 到 NEAR 的 MCA `exec` preview |
-| `nearMcaWithdrawTxError` | string | withdraw preview 错误 |
-| `mcaWithdrawToIntents` | object | withdraw 到 Intents/其他链的 relayer preview |
-| `mcaContext` | object | 可选 MCA 上下文 |
+| `nearDepositTxError` | string | Deposit preview error |
+| `nearMcaWithdrawTx` | object | MCA `exec` preview for a withdrawal to NEAR |
+| `nearMcaWithdrawTxError` | string | Withdrawal preview error |
+| `mcaWithdrawToIntents` | object | Relayer preview for a withdrawal to Intents/another chain |
+| `mcaContext` | object | Optional MCA context |
 
-业务必须检查：
+Required application checks:
 
-- `bestQuote.router` 非空。
-- `near-mca-deposit` 时 `nearDepositTxError` 为空。
-- `near-mca-withdraw` 时 `nearMcaWithdrawTxError` 为空。
+- `bestQuote.router` is not empty.
+- For `near-mca-deposit`, `nearDepositTxError` is empty.
+- For `near-mca-withdraw`, `nearMcaWithdrawTxError` is empty.
 
-## 流程：普通 Swap（不涉及 MCA）
+## Flow: Regular Swap (No MCA)
 
-当来源和目标都不是 MCA 余额时，quote 和 build body 都不传 `mca`，report 也不传 `multi_addr`。
+When neither the source nor the destination is an MCA balance, omit `mca` from both the quote and build bodies, and omit `multi_addr` from the report.
 
 ```mermaid
 flowchart LR
-  Q["POST /quote，不传 mca"] --> B["POST /swap，不传 mca/mcaRelayer"]
+  Q["POST /quote without mca"] --> B["POST /swap without mca/mcaRelayer"]
   B --> E{"executionType"}
-  E -->|"transaction"| T["钱包签名并广播主交易"]
-  E -->|"signature"| S["签 signingRequest，再 POST /order-submit"]
-  T --> H["获得 tx hash"]
-  S --> O["获得 orderId"]
+  E -->|"transaction"| T["Wallet signs and broadcasts the main transaction"]
+  E -->|"signature"| S["Sign signingRequest, then POST /order-submit"]
+  T --> H["Obtain tx hash"]
+  S --> O["Obtain orderId"]
   H --> R["POST /report"]
   O --> R
-  R --> P{"有 status key + router？"}
-  P -->|"是"| ST["GET /order-status"]
-  P -->|"否"| C["以链上确认结果结束"]
+  R --> P{"Status key and router available?"}
+  P -->|"Yes"| ST["GET /order-status"]
+  P -->|"No"| C["Finish with the on-chain confirmation result"]
 ```
 
-quote 使用前面的普通 body。将 `bestQuote` 字段透传到 build，但不要追加空的 `mca`：
+Use the regular request body shown above for the quote. Pass the `bestQuote` fields through to the build request, but do not add an empty `mca` object:
 
 ```json
 {
@@ -486,29 +486,29 @@ quote 使用前面的普通 body。将 `bestQuote` 字段透传到 build，但�
 }
 ```
 
-执行规则：
+Execution rules:
 
-- `executionType` 缺失或为 `transaction`：按 `chainType` 执行 `approve`（如有），再执行主 `tx`。approve hash 不是本次 Swap 的 `from_hash`，不能在 approve 后 report。
-- `executionType: "signature"`：签 `signingRequest`，调用 `/api/swap/order-submit`，拿到 orderId 后 report。这与 MCA `messageToSign` 无关。
-- 钱包拒签、用户取消、主交易广播失败或 `/order-submit` 失败：没有 tx hash/orderId，不 report。
+- If `executionType` is absent or equals `transaction`, execute `approve` if present according to `chainType`, then execute the main `tx`. The approval hash is not the swap's `from_hash`; do not report after the approval alone.
+- If `executionType` is `signature`, sign `signingRequest`, call `/api/swap/order-submit`, and report after obtaining the order ID. This is unrelated to the MCA `messageToSign`.
+- If the wallet rejects the signature, the user cancels, the main transaction fails to broadcast, or `/order-submit` fails, there is no transaction hash/order ID, so do not report.
 
-## 流程：MCA Deposit
+## Flow: MCA Deposit
 
-目标资产进入 MCA 时，quote 和 build 都传同一个 `mca`。这个分支没有 `messageToSign`，绑定钱包只负责标识 MCA controller；实际签名发生在来源链 `approve`/主交易。
+When the destination asset enters the MCA, include the same `mca` object in both the quote and build requests. This branch has no `messageToSign`. The bound wallet only identifies the MCA controller; the actual signatures apply to the source-chain `approve` and main transaction.
 
 ```mermaid
 flowchart LR
-  Q["POST /quote，mca.flow=deposit"] --> V["校验 router=near-mca-deposit"]
-  V --> B["POST /swap，透传同一个 mca"]
-  B --> A{"需要 approve？"}
-  A -->|"是"| AP["签名并确认 approve"]
-  A -->|"否"| T["执行主 tx"]
+  Q["POST /quote, mca.flow=deposit"] --> V["Validate router=near-mca-deposit"]
+  V --> B["POST /swap, pass through the same mca"]
+  B --> A{"Approval required?"}
+  A -->|"Yes"| AP["Sign and confirm approval"]
+  A -->|"No"| T["Execute main tx"]
   AP --> T
-  T --> H["获得来源链 tx hash"]
-  H --> R["POST /report，multi_addr=mcaAccountId"]
-  R --> S{"有 orderId + router？"}
-  S -->|"是"| ST["轮询 /order-status"]
-  S -->|"否"| C["结束；从 history 查看记录"]
+  T --> H["Obtain source-chain tx hash"]
+  H --> R["POST /report, multi_addr=mcaAccountId"]
+  R --> S{"orderId and router available?"}
+  S -->|"Yes"| ST["Poll /order-status"]
+  S -->|"No"| C["Finish; view the record in history"]
 ```
 
 ### Deposit Quote Request
@@ -538,7 +538,7 @@ curl -X POST "https://api.rhea.finance/api/swap/quote" \
   }'
 ```
 
-期望 router：
+Expected router:
 
 ```text
 near-mca-deposit
@@ -546,7 +546,7 @@ near-mca-deposit
 
 ### Deposit Build Request
 
-quote 成功后，构造 build body：
+After the quote succeeds, construct the build body:
 
 ```json
 {
@@ -577,20 +577,20 @@ quote 成功后，构造 build body：
 }
 ```
 
-字段来源：
+Field sources:
 
-| Build 字段 | 来源 |
+| Build Field | Source |
 | --- | --- |
-| quote request 公共字段 | 原始 quote request |
+| Common quote request fields | Original quote request |
 | `router` | `bestQuote.router` |
-| `market` | `bestQuote.market`，存在时传入 |
-| `expectedOut` | `bestQuote.amountOut` 或 `bestQuote.estimatedOut` |
-| `minAmountOut` | `bestQuote.minAmountOut`；缺失时使用 `expectedOut` |
-| `preSwap` | `near-mca-deposit` / `near-mca-withdraw` 固定传 `null`；普通 router 才透传 `bestQuote.preSwap ?? null` |
-| `bridge` | `near-mca-deposit` / `near-mca-withdraw` 固定传 `null`；普通 router 才透传 `bestQuote.bridge ?? null` |
-| `quoteId` | `bestQuote.quoteId`，存在时传入 |
+| `market` | `bestQuote.market`, when present |
+| `expectedOut` | `bestQuote.amountOut` or `bestQuote.estimatedOut` |
+| `minAmountOut` | `bestQuote.minAmountOut`; use `expectedOut` when absent |
+| `preSwap` | Always `null` for `near-mca-deposit` / `near-mca-withdraw`; only regular routers pass through `bestQuote.preSwap ?? null` |
+| `bridge` | Always `null` for `near-mca-deposit` / `near-mca-withdraw`; only regular routers pass through `bestQuote.bridge ?? null` |
+| `quoteId` | `bestQuote.quoteId`, when present |
 
-请求：
+Request:
 
 ```bash
 curl -X POST "https://api.rhea.finance/api/swap/swap" \
@@ -650,33 +650,33 @@ curl -X POST "https://api.rhea.finance/api/swap/swap" \
 }
 ```
 
-调用方需要按 `chainType` 执行 `approve` 和 `tx`。不同来源链的 `tx` 格式见下文“Build Response 的链交易格式”。
+The caller must execute `approve` and `tx` according to `chainType`. See “Chain Transaction Formats in Build Responses” below for the `tx` format of each source chain.
 
-## 流程：MCA Withdraw 到绑定 NEAR 钱包
+## Flow: MCA Withdrawal to the Bound NEAR Wallet
 
-只有同时满足以下条件才走 NEAR 直执行：
+Use direct NEAR execution only when all of the following conditions are met:
 
-- 来源余额属于 MCA。
-- `toChain` 是 `near`。
-- `recipient` 等于该 MCA 已绑定的 NEAR account id。
-- quote 的 `nearMcaWithdrawTx ?? mcaWithdrawToIntents` 可作为 NEAR exec preview，且 `nearMcaWithdrawTxError` 为空。
+- The source balance belongs to the MCA.
+- `toChain` is `near`.
+- `recipient` equals the NEAR account ID bound to the MCA.
+- `nearMcaWithdrawTx ?? mcaWithdrawToIntents` from the quote is usable as a NEAR exec preview, and `nearMcaWithdrawTxError` is empty.
 
-分支由“目标是否为绑定 NEAR account”决定，不以 preview 里的 `submissionMode` 作为分支开关。应用内部使用 `near:mainnet` 等链 ID 时，发给 HTTP API 前仍要归一化为 `near`。
+The branch is determined by whether the destination is the bound NEAR account, not by `submissionMode` in the preview. If an application internally uses chain IDs such as `near:mainnet`, it must still normalize them to `near` before calling the HTTP API.
 
 ```mermaid
 flowchart LR
-  Q["POST /quote，mca.flow=withdraw"] --> V["读取 nearMcaWithdrawTx ?? mcaWithdrawToIntents"]
-  V --> B["提取 business 和 signer_wallet"]
-  B --> E["构造 MCA exec，args.signature 为空字符串"]
-  E --> T["NEAR 钱包签名并发送链上交易"]
-  T --> H["获得 NEAR tx hash"]
-  H --> R["POST /report，multi_addr=mcaAccountId"]
-  R --> P{"preview depositAddress + router 都存在？"}
-  P -->|"是"| S["GET /order-status"]
-  P -->|"否"| C["以 NEAR 链上结果结束"]
+  Q["POST /quote, mca.flow=withdraw"] --> V["Read nearMcaWithdrawTx ?? mcaWithdrawToIntents"]
+  V --> B["Extract business and signer_wallet"]
+  B --> E["Build MCA exec with an empty args.signature"]
+  E --> T["NEAR wallet signs and sends the on-chain transaction"]
+  T --> H["Obtain NEAR tx hash"]
+  H --> R["POST /report, multi_addr=mcaAccountId"]
+  R --> P{"Preview depositAddress and router both available?"}
+  P -->|"Yes"| S["GET /order-status"]
+  P -->|"No"| C["Finish with the NEAR on-chain result"]
 ```
 
-该路径**不调用** `POST /api/swap/swap`，也不签 `messageToSign`。`exec` 参数里的 `signature` 使用空字符串，NEAR 钱包签的是链上 transaction 本身。
+This path **does not call** `POST /api/swap/swap` and does not sign `messageToSign`. The `signature` in the `exec` arguments is an empty string; the NEAR wallet signs the on-chain transaction itself.
 
 ### Withdraw-to-NEAR Quote Request
 
@@ -707,7 +707,7 @@ curl -X POST "https://api.rhea.finance/api/swap/quote" \
   }'
 ```
 
-期望 router：
+Expected router:
 
 ```text
 near-mca-withdraw
@@ -715,14 +715,14 @@ near-mca-withdraw
 
 ### Withdraw-to-NEAR Preview
 
-NEAR 直执行 preview 的选择优先级：
+Selection priority for the direct NEAR execution preview:
 
 1. `data.nearMcaWithdrawTx`
-2. `data.mcaWithdrawToIntents`，仅在第一项不存在且目标是已绑定 NEAR 时作为 fallback
+2. `data.mcaWithdrawToIntents`, as a fallback only when the first field is absent and the destination is the bound NEAR account
 
-选中的 preview 可能返回以下任一结构。
+The selected preview may use either of the following structures.
 
-结构一：transaction list：
+Structure 1: transaction list:
 
 ```json
 {
@@ -749,7 +749,7 @@ NEAR 直执行 preview 的选择优先级：
 }
 ```
 
-结构二：NEAR FunctionCall actions：
+Structure 2: NEAR FunctionCall actions:
 
 ```json
 {
@@ -767,22 +767,22 @@ NEAR 直执行 preview 的选择优先级：
 }
 ```
 
-调用方必须从选中的 preview 以下位置兼容解析 `business`：
+The caller must support resolving `business` from the following locations in the selected preview:
 
 1. `preview.business`
 2. `preview.transactions[0].args.business`
 3. `preview.actions[].params.args.business`
 
-`actions[].params.args` 可能是 object，也可能是 JSON string。`signer_wallet` 使用相同的优先级和解析规则。解析不到 `business` 时停止执行；解析不到 `signer_wallet` 时才回退为 `{ "Near": recipient }`。
+`actions[].params.args` may be either an object or a JSON string. Use the same priority and parsing rules for `signer_wallet`. Stop execution if `business` cannot be resolved. Fall back to `{ "Near": recipient }` only when `signer_wallet` cannot be resolved.
 
-两种结构的执行方式不同：
+The two structures are executed differently:
 
-- 有有效 `transactions[]` 时，逐项映射为 NEAR FunctionCall；保留每项已有 `args`，再用解析出的 `business`、`signer_wallet` 和空 `signature` 覆盖同名字段。
-- 只有 `actions[]` 时，`actions` 用来提取业务参数，不直接重放；客户端构造一笔发往 `mcaAccountId` 的 `exec` 调用，使用 300 TGas 和 0 deposit。
+- When a valid `transactions[]` array is present, map each entry to a NEAR FunctionCall. Preserve each entry's existing `args`, then overwrite the fields with the resolved `business`, `signer_wallet`, and an empty `signature`.
+- When only `actions[]` is present, use the actions to extract business parameters rather than replaying them directly. The client constructs an `exec` call to `mcaAccountId` with 300 TGas and a zero deposit.
 
-### NEAR 合约调用
+### NEAR Contract Call
 
-调用 MCA account 的 `exec`：
+Call `exec` on the MCA account:
 
 ```json
 {
@@ -809,34 +809,34 @@ NEAR 直执行 preview 的选择优先级：
 }
 ```
 
-规则：
+Rules:
 
-- `contractId`/`receiverId` 缺失时使用 `mcaAccountId`。
-- `methodName` 缺失时使用 `exec`。
-- preview `gas: 300` 表示 300 TGas，应转换为 `300000000000000`。
-- preview `deposit` 是 NEAR 单位，应转换为 yoctoNEAR。
-- quote 中有 `signer_wallet` 时优先使用；缺失时可以使用 `{ "Near": recipient }`。
-- 该路径 `signature` 使用空字符串；NEAR 钱包对链上交易本身签名。
-- status deposit address 从选中 preview 的 `depositAddress` / `deposit_address` / `deposit.depositAddress` / `deposit.deposit_address` 解析。直接使用 HTTP API 时，缺失该地址仍可广播链上交易，但无法调用 `/order-status`；SDK 使用 `waitFor: "completed"` 时会在广播前校验该地址并报错，改用 `waitFor: "source-confirmed"` 才只等待 NEAR 链上结果。
+- Use `mcaAccountId` when `contractId`/`receiverId` is absent.
+- Use `exec` when `methodName` is absent.
+- Preview value `gas: 300` means 300 TGas and must be converted to `300000000000000`.
+- Preview `deposit` is denominated in NEAR and must be converted to yoctoNEAR.
+- Prefer `signer_wallet` from the quote; when absent, `{ "Near": recipient }` may be used.
+- This path uses an empty string for `signature`; the NEAR wallet signs the on-chain transaction itself.
+- Resolve the status deposit address from `depositAddress` / `deposit_address` / `deposit.depositAddress` / `deposit.deposit_address` in the selected preview. When using the HTTP API directly, the on-chain transaction can still be broadcast if this address is absent, but `/order-status` cannot be called. When the SDK uses `waitFor: "completed"`, it validates this address before broadcasting and returns an error if it is missing. Use `waitFor: "source-confirmed"` to wait only for the NEAR on-chain result.
 
-## 流程：MCA Withdraw 到 Intents Relayer
+## Flow: MCA Withdrawal via the Intents Relayer
 
-来源是 MCA，但目标不是已绑定 NEAR account 时走 relayer。目标可以是 EVM、Solana、Aptos、Sui、BTC 等外部链地址，也可以是未绑定的 NEAR 地址。即使 preview 带有 `submissionMode`，仍以这个地址绑定关系作为最终分支依据。
+Use the relayer when the source is an MCA but the destination is not the bound NEAR account. The destination may be an external-chain address such as EVM, Solana, Aptos, Sui, or BTC, or an unbound NEAR address. Even if the preview includes `submissionMode`, the address-binding relationship remains the final branch criterion.
 
 ```mermaid
 flowchart LR
-  Q["POST /quote，mca.flow=withdraw"] --> V["读取 mcaWithdrawToIntents"]
-  V --> C{"messageToSign/business/depositAddress 完整？"}
-  C -->|"否"| X["停止，不签名、不提交"]
-  C -->|"是"| I["校验连接钱包与 mca.signer 一致"]
-  I --> SG["签 messageToSign 的原始 UTF-8 字节"]
-  SG --> B["POST /swap，传 mca + mcaRelayer"]
-  B --> O["获得 orderId + router"]
-  O --> R["POST /report，from_hash=orderId"]
+  Q["POST /quote, mca.flow=withdraw"] --> V["Read mcaWithdrawToIntents"]
+  V --> C{"messageToSign/business/depositAddress complete?"}
+  C -->|"No"| X["Stop without signing or submitting"]
+  C -->|"Yes"| I["Verify the connected wallet matches mca.signer"]
+  I --> SG["Sign the original UTF-8 bytes of messageToSign"]
+  SG --> B["POST /swap with mca + mcaRelayer"]
+  B --> O["Obtain orderId + router"]
+  O --> R["POST /report, from_hash=orderId"]
   R --> S["GET /order-status"]
 ```
 
-这个分支的 `/swap` 是 relayer 提交，不是返回一笔让调用方再次广播的来源链 transaction。只有签名成功后才调用 `/swap`；拒签或空签名必须立即停止。
+In this branch, `/swap` submits to the relayer; it does not return a source-chain transaction for the caller to broadcast again. Call `/swap` only after signing succeeds. Stop immediately if the signature is rejected or empty.
 
 ### Relayer Quote Request
 
@@ -897,15 +897,15 @@ curl -X POST "https://api.rhea.finance/api/swap/quote" \
 }
 ```
 
-必须校验：
+Required validation:
 
-- `mcaWithdrawToIntents` 是 object。
-- `messageToSign` 是非空字符串。
-- `business` 是 object。
-- 按下面的优先级能解析出非空 deposit address。
-- 当前签名钱包与 quote request 的 `mca.signer` 一致。
+- `mcaWithdrawToIntents` is an object.
+- `messageToSign` is a non-empty string.
+- `business` is an object.
+- A non-empty deposit address can be resolved using the priority below.
+- The current signing wallet matches `mca.signer` in the quote request.
 
-签名规则：
+Signing rule:
 
 ```ts
 const signature = await wallet.signMessage(
@@ -913,30 +913,30 @@ const signature = await wallet.signMessage(
 );
 ```
 
-`messageToSign` 是 opaque string。调用方必须签它的**原始 UTF-8 字节**：
+`messageToSign` is an opaque string. The caller must sign its **original UTF-8 bytes**:
 
-- 不要 `trim()`。
-- 不要解析后重新序列化。
-- 不要用 `JSON.stringify(business)` 替代。
-- 不要自行拼 nonce、deadline、recipient 或其他业务字段。
-- 可以使用钱包标准本身规定的 domain/prefix，例如 EVM `signMessage` 的 EIP-191 prefix；不要在调用钱包前手工再加一遍。
+- Do not call `trim()`.
+- Do not parse and reserialize it.
+- Do not replace it with `JSON.stringify(business)`.
+- Do not append a nonce, deadline, recipient, or any other business field yourself.
+- Use the domain/prefix defined by the wallet standard itself, such as the EIP-191 prefix applied by EVM `signMessage`; do not manually add it before calling the wallet.
 
-`business` 不参与客户端重建。提交 `/swap` 时，将 quote preview 返回的原始 `business` object 原样放入 `mcaRelayer.business`。
+The client must not reconstruct `business`. When submitting `/swap`, place the original `business` object returned by the quote preview in `mcaRelayer.business` unchanged.
 
-deposit address 解析优先级：
+Deposit address resolution priority:
 
-1. quote response 顶层 `data.depositAddress`。
-2. `mcaWithdrawToIntents.depositAddress` 或 `deposit_address`。
-3. `mcaWithdrawToIntents.deposit.depositAddress` 或 `deposit.deposit_address`。
-4. `bestQuote` 中相同的 direct/nested 字段。
+1. Top-level `data.depositAddress` in the quote response.
+2. `mcaWithdrawToIntents.depositAddress` or `deposit_address`.
+3. `mcaWithdrawToIntents.deposit.depositAddress` or `deposit.deposit_address`.
+4. The corresponding direct/nested fields in `bestQuote`.
 
-都不存在时不得签名或提交 relayer `/swap`。参考应用还会读取 quote snapshot/store 中缓存的 deposit address；纯 HTTP 调用方不应依赖 UI store。
+If none exists, do not sign or submit the relayer `/swap` request. The reference application also reads a cached deposit address from the quote snapshot/store; a pure HTTP client must not depend on a UI store.
 
 ### Relayer Wallet Descriptor
 
-`mcaRelayer.wallet` 格式：
+`mcaRelayer.wallet` format:
 
-| signer chain | `wallet` JSON |
+| Signer Chain | `wallet` JSON |
 | --- | --- |
 | EVM | `{ "EVM": "<address-without-0x>" }` |
 | Solana | `{ "Solana": "<public-key>" }` |
@@ -947,29 +947,29 @@ deposit address 解析优先级：
 | Zcash | `{ "Zcash": "<signing-public-key>" }` |
 | Tron | `{ "Tron": "<identity-key>" }` |
 
-API raw type 允许 `wallet` 是 object 或 compact JSON string；参考调用逻辑发送 object，新接入也应优先发送 object，避免二次 JSON 编码。wallet descriptor 必须与 quote 的 `mca.signer` 表示同一钱包。EVM identity 比较时忽略 `0x` 和大小写；Aptos/Sui identity 比较时忽略大小写；其他链按原字符串比较。
+The raw API type permits `wallet` to be either an object or a compact JSON string. The reference flow sends an object, and new integrations should also prefer an object to avoid double JSON encoding. The wallet descriptor must represent the same wallet as the quote's `mca.signer`. When comparing EVM identities, ignore the `0x` prefix and letter case. For Aptos/Sui identities, ignore letter case. Compare other chains using the original string.
 
-### `mcaRelayer.signature` 的格式
+### `mcaRelayer.signature` Format
 
-HTTP 字段类型统一为 string，但 string 的内部编码由 `wallet` variant 决定。以下是 `multi-chain-lending` 当前参考实现的编码标准：
+The HTTP field type is always a string, but its internal encoding depends on the `wallet` variant. The current `multi-chain-lending` reference implementation uses the following encoding rules:
 
-| Wallet variant | 签名输入和算法 | `mcaRelayer.signature` 内容 |
+| Wallet Variant | Signing Input and Algorithm | `mcaRelayer.signature` Content |
 | --- | --- | --- |
-| `EVM` | `signer.signMessage(messageToSign)`，即 EIP-191 personal message | 65-byte signature 的 hex，**去掉 `0x`** |
-| `Solana` | 钱包 `signMessage(UTF8(messageToSign))` | 64-byte signature 的 lowercase hex |
-| `Bitcoin` | 钱包标准 `signMessage(messageToSign)` | 将钱包返回的 base64 signature 解码后转为 hex |
-| `Near` | NEP-413/Wallet Selector `signMessage`，message 为 UTF-8 bytes，recipient 为签名 account，nonce 必须唯一 | 钱包返回 string 时原样传；返回 bytes 时转为 hex |
-| `Aptos` | `signMessage({ message, address:false, application:false, chainId:false, nonce:"0" })` | signature hex，去掉 `0x` |
-| `Sui` | `signPersonalMessage({ message: UTF8(messageToSign) })` | 规范化后的 raw signature lowercase hex；参考实现会移除 serialized signature 中的 scheme/public-key 包装 |
+| `EVM` | `signer.signMessage(messageToSign)`, an EIP-191 personal message | Hex-encoded 65-byte signature, **without `0x`** |
+| `Solana` | Wallet `signMessage(UTF8(messageToSign))` | Lowercase hex-encoded 64-byte signature |
+| `Bitcoin` | Wallet-standard `signMessage(messageToSign)` | Decode the wallet's base64 signature and encode it as hex |
+| `Near` | NEP-413/Wallet Selector `signMessage`; message is UTF-8 bytes, recipient is the signing account, and nonce must be unique | Pass through a string response unchanged; encode a byte response as hex |
+| `Aptos` | `signMessage({ message, address:false, application:false, chainId:false, nonce:"0" })` | Signature hex without `0x` |
+| `Sui` | `signPersonalMessage({ message: UTF8(messageToSign) })` | Normalized raw signature in lowercase hex; the reference implementation removes the scheme/public-key wrapper from the serialized signature |
 
-EVM 示例：
+EVM example:
 
 ```ts
 const signed = await signer.signMessage(messageToSign);
 const signature = signed.replace(/^0x/i, "");
 ```
 
-Solana 示例：
+Solana example:
 
 ```ts
 const bytes = new TextEncoder().encode(messageToSign);
@@ -977,36 +977,36 @@ const signed = await wallet.signMessage(bytes);
 const signature = Buffer.from(signed).toString("hex");
 ```
 
-Bitcoin 示例：
+Bitcoin example:
 
 ```ts
 const signed = await wallet.signMessage(messageToSign);
 const signature = Buffer.from(signed.signature, "base64").toString("hex");
 ```
 
-链支持需要区分两件事：
+Chain support distinguishes between two capabilities:
 
-- `{ "Zcash": ... }` 和 `{ "Tron": ... }` 是有效的 MCA wallet descriptor，可用于表示绑定身份。
-- 当前 `multi-chain-lending` Swap relayer 流程主动禁止使用 Zcash/Tron 作为本次离线消息 signer；Tron 也没有对应的 `sign_message` 实现。它们仍可作为 deposit/目标链交易执行器。只有服务端验签能力和钱包 adapter 都明确支持后，HTTP 调用方才能用它们生成 `mcaRelayer.signature`。
+- `{ "Zcash": ... }` and `{ "Tron": ... }` are valid MCA wallet descriptors and can represent a bound identity.
+- The current `multi-chain-lending` swap relayer flow explicitly disallows Zcash/Tron as the offline-message signer for this operation; Tron also has no corresponding `sign_message` implementation. They can still act as deposit/destination-chain transaction executors. HTTP callers may use them to generate `mcaRelayer.signature` only after both server-side signature verification and the wallet adapter explicitly support it.
 
-无论哪条链，最终 signature 必须是非空 string。钱包拒签、返回空值或编码失败时，不得调用 `/swap`。
+For every chain, the final signature must be a non-empty string. Do not call `/swap` if the wallet rejects the signature, returns an empty value, or encoding fails.
 
 ### Relayer `/swap` Request
 
-`mcaRelayer` 只出现在这个分支的 `/swap` body，不出现在 quote、NEAR 直执行或 deposit 请求中：
+`mcaRelayer` appears only in the `/swap` body for this branch. It does not appear in quote, direct NEAR execution, or deposit requests:
 
-| 字段 | 必填 | 来源 |
+| Field | Required | Source |
 | --- | --- | --- |
-| `mcaRelayer.mcaAccountId` | 是 | 与 quote `mca.mcaAccountId` 完全一致 |
-| `mcaRelayer.wallet` | 是 | 根据实际签名链生成的单 key descriptor，且与 quote `mca.signer` 一致 |
-| `mcaRelayer.business` | 是 | quote `mcaWithdrawToIntents.business` 原样透传 |
-| `mcaRelayer.signature` | 是 | 对 quote 原始 `messageToSign` 的非空签名 string |
-| `deposit_address` | 是 | preview 或 `bestQuote` 返回的 Intents deposit address |
-| `is_cross_chain` | 是 | 使用 quote 的 `isCrossChain`；缺失时该分支按 `true` |
-| `tx_type` | 是 | 固定 `mca-withdraw-relayer` |
-| `multi_addr` | 是 | MCA account id，用于 report/history 关联 |
+| `mcaRelayer.mcaAccountId` | Yes | Exactly matches quote `mca.mcaAccountId` |
+| `mcaRelayer.wallet` | Yes | Single-key descriptor generated for the actual signing chain, matching quote `mca.signer` |
+| `mcaRelayer.business` | Yes | Pass through quote `mcaWithdrawToIntents.business` unchanged |
+| `mcaRelayer.signature` | Yes | Non-empty signature string over the original quote `messageToSign` |
+| `deposit_address` | Yes | Intents deposit address returned by the preview or `bestQuote` |
+| `is_cross_chain` | Yes | Use quote `isCrossChain`; default to `true` for this branch when absent |
+| `tx_type` | Yes | Always `mca-withdraw-relayer` |
+| `multi_addr` | Yes | MCA account ID used to associate report/history records |
 
-build body 同时保留 quote 使用的 `mca`，不能只传 `mcaRelayer`。
+The build body must retain the `mca` object used for the quote; do not send only `mcaRelayer`.
 
 ```json
 {
@@ -1051,7 +1051,7 @@ build body 同时保留 quote 使用的 `mca`，不能只传 `mcaRelayer`。
 }
 ```
 
-curl：
+curl:
 
 ```bash
 curl -X POST "https://api.rhea.finance/api/swap/swap" \
@@ -1097,61 +1097,61 @@ curl -X POST "https://api.rhea.finance/api/swap/swap" \
 }
 ```
 
-orderId 解析优先级：
+Order ID resolution priority:
 
 1. `data.orderId`
 2. `data.deposit.orderId`
 
-router 解析优先级：
+Router resolution priority:
 
 1. `data.router`
 2. `data.statusRouter`
-3. quote 的 `bestQuote.router`
+3. Quote `bestQuote.router`
 
-relayer response 不要求调用方广播 `tx`。提交成功后直接 report 并轮询 order status。
+The relayer response does not require the caller to broadcast `tx`. After a successful submission, report immediately and poll order status.
 
-## 什么时候调用 Report
+## When to Call Report
 
-`POST /api/swap/report` 的触发条件不是“调用过 `/swap`”，而是**已经产生可追踪的主交易标识**。
+The trigger for `POST /api/swap/report` is not “`/swap` was called,” but that **a trackable main transaction identifier has been produced**.
 
 ```mermaid
 flowchart TD
-  A["当前流程是否已经提交？"] -->|"否"| N["不 report"]
-  A -->|"是"| K{"是否有主 tx hash 或 relayer/order id？"}
-  K -->|"否"| N
-  K -->|"是"| R["POST /report"]
-  R --> OK{"report 成功？"}
-  OK -->|"是"| D["继续 status/history"]
-  OK -->|"否"| W["记录 warning，保存原 payload 后重试"]
+  A["Has the current flow been submitted?"] -->|"No"| N["Do not report"]
+  A -->|"Yes"| K{"Main tx hash or relayer/order ID available?"}
+  K -->|"No"| N
+  K -->|"Yes"| R["POST /report"]
+  R --> OK{"Report succeeded?"}
+  OK -->|"Yes"| D["Continue with status/history"]
+  OK -->|"No"| W["Record a warning, save the original payload, and retry"]
 ```
 
-### 需要 Report
+### Report Is Required
 
-| 场景 | Report 时机 | `from_hash` | `multi_addr` |
+| Scenario | When to Report | `from_hash` | `multi_addr` |
 | --- | --- | --- | --- |
-| 普通 transaction Swap | 主 `tx` 广播成功并取得 tx hash 后 | 主 tx hash | 不传 |
-| 普通 signature order | `/order-submit` 成功并取得 orderId 后 | orderId | 不传 |
-| MCA Deposit | 来源链主交易广播成功后 | 来源链主 tx hash | `mcaAccountId` |
-| MCA Withdraw 到 NEAR | NEAR `exec` 广播成功后 | NEAR tx hash | `mcaAccountId` |
-| MCA Withdraw Relayer | relayer `/swap` 返回 orderId 后 | orderId | `mcaAccountId` |
+| Regular transaction swap | After the main `tx` is broadcast successfully and its hash is obtained | Main transaction hash | Omit |
+| Regular signature order | After `/order-submit` succeeds and returns an order ID | Order ID | Omit |
+| MCA deposit | After the source-chain main transaction is broadcast successfully | Source-chain main transaction hash | `mcaAccountId` |
+| MCA withdrawal to NEAR | After the NEAR `exec` is broadcast successfully | NEAR transaction hash | `mcaAccountId` |
+| MCA withdrawal via relayer | After relayer `/swap` returns an order ID | Order ID | `mcaAccountId` |
 
-### 不需要、也不应该 Report
+### Do Not Report
 
-- 只调用了 `/quote`。
-- 只调用了普通/deposit `/swap`，但返回交易尚未广播。
-- 只完成了 token approve，主 Swap transaction 还没有提交。
-- 钱包拒签、用户取消或签名为空。
-- 主交易广播失败、`/order-submit` 失败或 relayer `/swap` 失败。
-- 只有 preview、`business`、`messageToSign` 或 deposit address，但没有 tx hash/orderId。
-- 查询 `/history`、`/order-status` 本身不触发新的 report。
+- Only `/quote` has been called.
+- A regular/deposit `/swap` has been called, but the returned transaction has not been broadcast.
+- Only the token approval is complete; the main swap transaction has not been submitted.
+- The wallet rejected the signature, the user canceled, or the signature is empty.
+- The main transaction failed to broadcast, `/order-submit` failed, or the relayer `/swap` failed.
+- Only a preview, `business`, `messageToSign`, or deposit address exists, without a transaction hash/order ID.
+- Querying `/history` or `/order-status` does not itself trigger a new report.
 
-report 是历史登记/追踪动作。report 失败不回滚已经广播的链上交易或已经接受的 relayer order；调用方应保存完全相同的 payload 稍后重试，不能重新广播交易。
+Report registers and tracks history. A report failure does not roll back an already-broadcast on-chain transaction or an accepted relayer order. The caller should save the exact same payload and retry later; it must not rebroadcast the transaction.
 
-## Report 接口参考：POST `/api/swap/report`
+## Report API Reference: POST `/api/swap/report`
 
-### Request 字段
+### Request Fields
 
-下面是 MCA relayer report 示例；普通 Swap 需要省略 `multi_addr`：
+The following is an MCA relayer report example. Omit `multi_addr` for a regular swap:
 
 ```json
 {
@@ -1180,35 +1180,35 @@ curl -X POST "https://api.rhea.finance/api/swap/report" \
   -d @swap-report.json
 ```
 
-字段：
+Fields:
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `sender` | string | 是 | 来源钱包或 MCA account |
-| `recipient` | string | 是 | 最终接收地址 |
-| `from_hash` | string | 是 | 来源链 tx hash、NEAR tx hash 或 relayer orderId |
-| `from_token` | string | 是 | 来源 token id |
-| `to_token` | string | 是 | 目标 token id |
-| `deposit_address` | string | 是 | deposit/status address；没有时传空字符串 |
-| `from_chain` | string | 否 | 来源链 API chain id |
-| `to_chain` | string | 否 | 目标链 API chain id |
-| `is_cross_chain` | boolean | 否 | 是否跨链 |
-| `amount_in` | string | 否 | 输入金额 |
-| `estimated_out` | string | 否 | quote 预计输出 |
-| `router` | string | 否 | quote/build router |
-| `tx_type` | string | 否 | 交易类型 |
-| `multi_addr` | string | MCA 条件必填 | MCA deposit/withdraw 传 MCA account id；普通 Swap 整个字段省略 |
-| `swapId` / `swap_id` | string | 否 | order id |
-| `extra` | object | 否 | 扩展信息 |
+| `sender` | string | Yes | Source wallet or MCA account |
+| `recipient` | string | Yes | Final recipient address |
+| `from_hash` | string | Yes | Source-chain transaction hash, NEAR transaction hash, or relayer order ID |
+| `from_token` | string | Yes | Source token ID |
+| `to_token` | string | Yes | Destination token ID |
+| `deposit_address` | string | Yes | Deposit/status address; use an empty string when unavailable |
+| `from_chain` | string | No | Source-chain API chain ID |
+| `to_chain` | string | No | Destination-chain API chain ID |
+| `is_cross_chain` | boolean | No | Whether the route is cross-chain |
+| `amount_in` | string | No | Input amount |
+| `estimated_out` | string | No | Estimated quote output |
+| `router` | string | No | Quote/build router |
+| `tx_type` | string | No | Transaction type |
+| `multi_addr` | string | Conditional for MCA | MCA account ID for MCA deposit/withdraw; omit the entire field for a regular swap |
+| `swapId` / `swap_id` | string | No | Order ID |
+| `extra` | object | No | Extension data |
 
-不同 flow 的 report：
+Report values by flow:
 
 | Flow | `from_hash` | `tx_type` | `multi_addr` |
 | --- | --- | --- | --- |
-| 普通 Swap | 主 tx hash 或签名订单 orderId | router/build 对应类型 | 不传 |
-| MCA deposit | 来源链 tx hash | `same-chain` 或 `cross-chain` | MCA account id |
-| withdraw 到 NEAR | NEAR tx hash | `mca-withdraw-near` | MCA account id |
-| withdraw relayer | relayer orderId | `mca-withdraw-relayer` | MCA account id |
+| Regular swap | Main transaction hash or signature-order ID | Type corresponding to the router/build | Omit |
+| MCA deposit | Source-chain transaction hash | `same-chain` or `cross-chain` | MCA account ID |
+| Withdrawal to NEAR | NEAR transaction hash | `mca-withdraw-near` | MCA account ID |
+| Withdrawal via relayer | Relayer order ID | `mca-withdraw-relayer` | MCA account ID |
 
 ### Response
 
@@ -1223,21 +1223,21 @@ curl -X POST "https://api.rhea.finance/api/swap/report" \
 }
 ```
 
-## 什么时候查询 Order Status
+## When to Query Order Status
 
-只有同时具备 `status key` 和 `router` 才调用 `/api/swap/order-status`：
+Call `/api/swap/order-status` only when both a `status key` and a `router` are available:
 
-| 流程 | status key | router | 是否轮询 |
+| Flow | Status Key | Router | Poll? |
 | --- | --- | --- | --- |
-| 普通同链 transaction，API 未返回 orderId | 无 | build router | 否，以链上 receipt 为准 |
-| 普通跨链/签名订单 | `data.orderId ?? data.deposit.orderId` | `data.statusRouter ?? data.router` | 两者存在时 |
-| MCA Deposit | `data.orderId ?? data.deposit.orderId` | `data.statusRouter ?? data.router ?? quote.bestQuote.router` | 有 orderId 时 |
-| MCA Withdraw 到 NEAR | 选中 preview 的 deposit address | quote `bestQuote.router` | 两者都存在时 |
-| MCA Withdraw Relayer | `data.orderId ?? data.deposit.orderId` | 参考应用使用 `data.router ?? data.statusRouter ?? quote.bestQuote.router` | 两者存在时 |
+| Regular same-chain transaction where the API returned no order ID | None | Build router | No; use the on-chain receipt |
+| Regular cross-chain/signature order | `data.orderId ?? data.deposit.orderId` | `data.statusRouter ?? data.router` | When both exist |
+| MCA deposit | `data.orderId ?? data.deposit.orderId` | `data.statusRouter ?? data.router ?? quote.bestQuote.router` | When an order ID exists |
+| MCA withdrawal to NEAR | Deposit address from the selected preview | Quote `bestQuote.router` | When both exist |
+| MCA withdrawal via relayer | `data.orderId ?? data.deposit.orderId` | Reference application uses `data.router ?? data.statusRouter ?? quote.bestQuote.router` | When both exist |
 
-不能用 tx hash 猜测 orderId，也不能在缺少 router 时盲目调用。status 超时只表示暂时无法确认终态，不代表交易失败；应保留 tx hash/orderId 并允许从 history 继续查看。
+Do not infer an order ID from a transaction hash, and do not call the endpoint without a router. A status timeout means only that a terminal state could not yet be confirmed; it does not mean the transaction failed. Retain the transaction hash/order ID and allow the user to continue tracking it through history.
 
-## Order Status 接口参考：GET `/api/swap/order-status`
+## Order Status API Reference: GET `/api/swap/order-status`
 
 ### Request
 
@@ -1246,20 +1246,20 @@ GET /api/swap/order-status?orderId=<ORDER_ID>&router=<ROUTER>&chainId=<OPTIONAL_
 Authorization: Bearer <ACCESS_TOKEN>
 ```
 
-curl：
+curl:
 
 ```bash
 curl "https://api.rhea.finance/api/swap/order-status?orderId=relayer-order-id&router=near-mca-withdraw" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-Query：
+Query Parameters:
 
-| 参数 | 必填 | 说明 |
+| Parameter | Required | Description |
 | --- | --- | --- |
-| `orderId` | 是 | build/relayer 返回的 order id；某些 NEAR MCA 路径使用 status deposit address |
-| `router` | 是 | 使用上一表按具体分支解析出的 router，不要统一套用一个优先级 |
-| `chainId` | 否 | CoW 等 router 需要的 EVM chain id；MCA 通常不需要 |
+| `orderId` | Yes | Order ID returned by the build/relayer; some NEAR MCA paths use the status deposit address |
+| `router` | Yes | Router resolved for the specific branch according to the table above; do not use one universal priority |
+| `chainId` | No | EVM chain ID required by routers such as CoW; usually unnecessary for MCA |
 
 ### Response
 
@@ -1273,25 +1273,25 @@ Query：
 }
 ```
 
-status 兼容值：
+Supported status values:
 
-| API 值 | 含义 |
+| API Value | Meaning |
 | --- | --- |
-| `PENDING`, `CREATED` | 等待处理 |
-| `PROCESSING`, `IN_PROGRESS` | 处理中 |
-| `SUCCESS`, `COMPLETED`, `FILLED` | 成功 |
-| `FAILED` | 失败 |
-| `REFUNDED` | 已退款 |
-| `EXPIRED` | 已过期 |
+| `PENDING`, `CREATED` | Pending |
+| `PROCESSING`, `IN_PROGRESS` | Processing |
+| `SUCCESS`, `COMPLETED`, `FILLED` | Successful |
+| `FAILED` | Failed |
+| `REFUNDED` | Refunded |
+| `EXPIRED` | Expired |
 
-建议轮询：
+Recommended polling policy:
 
-- 间隔：5 秒。
-- 总超时：约 250 秒。
-- 终态：成功、失败、退款或过期后停止。
-- 超时不代表失败，应提示用户查看 history。
+- Interval: 5 seconds.
+- Total timeout: approximately 250 seconds.
+- Terminal states: stop after success, failure, refund, or expiration.
+- A timeout does not mean failure; direct the user to history for continued tracking.
 
-## History 接口参考：GET `/api/swap/history`
+## History API Reference: GET `/api/swap/history`
 
 ### Request
 
@@ -1300,20 +1300,20 @@ GET /api/swap/history?sender=<SENDER>&pageNumber=1&pageSize=20
 Authorization: Bearer <ACCESS_TOKEN>
 ```
 
-curl：
+curl:
 
 ```bash
 curl "https://api.rhea.finance/api/swap/history?sender=0xSenderAddress&pageNumber=1&pageSize=20" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-Query：
+Query Parameters:
 
-| 参数 | 必填 | 说明 |
+| Parameter | Required | Description |
 | --- | --- | --- |
-| `sender` | 是 | 通用搜索值；后端匹配记录的 `sender`、`recipient` 或 `multi_addr`。查询某个 MCA 时直接传 MCA account id |
-| `pageNumber` | 否 | 页码 |
-| `pageSize` | 否 | 每页数量 |
+| `sender` | Yes | General search value; the backend matches a record's `sender`, `recipient`, or `multi_addr`. Pass the MCA account ID directly when querying an MCA |
+| `pageNumber` | No | Page number |
+| `pageSize` | No | Number of records per page |
 
 ### Response
 
@@ -1356,25 +1356,25 @@ Query：
 }
 ```
 
-History 只有一个名为 `sender` 的搜索参数，但它不是只匹配数据库的 sender 列。后端查询条件等价于：
+History has a single search parameter named `sender`, but it does not match only the database's sender column. The backend query is equivalent to:
 
 ```sql
 sender = :query OR recipient = :query OR multi_addr = :query
 ```
 
-因此查询某个 MCA 的完整历史时，直接请求：
+Therefore, request the complete history of an MCA directly with:
 
 ```http
 GET /api/swap/history?sender=<MCA_ACCOUNT_ID>&pageNumber=1&pageSize=20
 ```
 
-不要再根据返回记录的 `multi_addr` 与 MCA account id 是否完全相等来本地过滤。后端返回前可能把 MCA 地址展示为 `Cross-chain Account`，精确比较可能错误丢弃 Deposit 或 Withdraw 记录。分页列表和 `total_page` / `total_size` 应直接采用服务端结果。
+Do not locally filter returned records by exact equality between `multi_addr` and the MCA account ID. Before returning records, the backend may display the MCA address as `Cross-chain Account`; exact comparison could incorrectly discard deposit or withdrawal records. Use the server-provided paginated list and `total_page` / `total_size` directly.
 
-## Build Response 的链交易格式
+## Chain Transaction Formats in Build Responses
 
-`POST /api/swap/swap` 的 `data.tx` 根据来源执行链返回不同结构。`chainType` 可能直接是 `evm`、`solana` 等，也可能是 `cross-chain`；当它是 `cross-chain` 时，必须根据 `fromChain` 决定 `tx` 的实际格式，不能把 `cross-chain` 当成一种钱包交易类型。
+`data.tx` from `POST /api/swap/swap` uses a different structure depending on the source execution chain. `chainType` may be a specific value such as `evm` or `solana`, or it may be `cross-chain`. When it is `cross-chain`, determine the actual `tx` format from `fromChain`; do not treat `cross-chain` as a wallet transaction type.
 
-EVM 是否执行 approve 以 `data.approve != null` 为准；`needsApprove` 只是辅助标记。approve 成功后还必须继续执行主 `tx`。
+For EVM, determine whether to execute an approval using `data.approve != null`; `needsApprove` is only an auxiliary flag. After the approval succeeds, the main `tx` must still be executed.
 
 ### EVM
 
@@ -1450,7 +1450,7 @@ EVM 是否执行 approve 以 `data.approve != null` 为准；`needsApprove` 只�
 }
 ```
 
-`tx` 也可能是 NEAR transaction array。
+`tx` may also be a NEAR transaction array.
 
 ### Tron
 
@@ -1481,7 +1481,7 @@ EVM 是否执行 approve 以 `data.approve != null` 为准；`needsApprove` 只�
 }
 ```
 
-Bitcoin `kind` 也可能是 `utxo_transfer`。
+Bitcoin `kind` may also be `utxo_transfer`.
 
 ### Zcash
 
@@ -1497,7 +1497,7 @@ Bitcoin `kind` 也可能是 `utxo_transfer`。
 }
 ```
 
-Zcash `kind` 也可能是 `utxo_transfer`。
+Zcash `kind` may also be `utxo_transfer`.
 
 ### Sui
 
@@ -1513,11 +1513,11 @@ Zcash `kind` 也可能是 `utxo_transfer`。
 }
 ```
 
-Sui `coinType` 缺失时，当前 SDK 使用 build response 的 `tokenIn.address` 作为 fallback；HTTP 调用方最好要求服务端明确返回 `coinType`。
+When Sui `coinType` is absent, the current SDK uses `tokenIn.address` from the build response as a fallback. HTTP callers should preferably require the server to return `coinType` explicitly.
 
-## 完整 Relayer Fetch/TypeScript 示例
+## Complete Relayer Fetch/TypeScript Example
 
-下面示例只使用 HTTP API，不依赖 SDK：
+The following example uses only the HTTP API and does not depend on the SDK:
 
 ```ts
 type ApiEnvelope<T> = {
@@ -1607,7 +1607,7 @@ const buildRequest = {
   expectedOut: bestQuote.amountOut || bestQuote.estimatedOut,
   minAmountOut:
     bestQuote.minAmountOut || bestQuote.amountOut || bestQuote.estimatedOut,
-  // near-mca-deposit / near-mca-withdraw 与参考调用逻辑一致，固定为 null。
+  // Match the reference flow: always null for near-mca-deposit/withdraw.
   preSwap: null,
   bridge: null,
   ...(bestQuote.quoteId ? { quoteId: bestQuote.quoteId } : {}),
@@ -1667,22 +1667,22 @@ const status = await request<any>(`/api/swap/order-status?${query}`, {
 console.log(status);
 ```
 
-## 错误与重试建议
+## Error Handling and Retry Recommendations
 
-| 场景 | 建议 |
+| Scenario | Recommendation |
 | --- | --- |
-| HTTP `401` / `403` | 刷新或更换 access token，不自动无限重试 |
-| HTTP `429` | 按服务端限流策略退避重试 |
-| HTTP `5xx` | quote/status/history 可有限重试；`/swap` 不应盲目重试 |
-| `code !== 0` | 展示 `msg`；通常不自动重试业务错误 |
-| quote 过期 | 重新调用 `/quote`，不要继续签名或提交 |
-| wallet 拒签 | 停止流程，不调用 `/swap` |
-| report 失败 | 保留 tx hash/orderId，稍后重试 report |
-| order status 超时 | 不视为失败，允许用户从 history 继续查询 |
+| HTTP `401` / `403` | Refresh or replace the access token; do not retry indefinitely |
+| HTTP `429` | Retry with backoff according to the server's rate-limit policy |
+| HTTP `5xx` | Retry quote/status/history a limited number of times; do not blindly retry `/swap` |
+| `code !== 0` | Display `msg`; normally do not automatically retry business errors |
+| Expired quote | Call `/quote` again; do not continue signing or submitting |
+| Wallet rejects signature | Stop the flow and do not call `/swap` |
+| Report failure | Retain the transaction hash/order ID and retry the report later |
+| Order status timeout | Do not treat it as failure; allow the user to continue querying through history |
 
-推荐：
+Recommendations:
 
-- `/quote`、`/order-status`、`/history` 可以对网络错误、429 和 5xx 做有限指数退避。
-- `/swap`、`/report` 不自动重试；提交结果不明确时，先使用已有 orderId、tx hash 或 history 查询，不要盲目重复提交。
-- 钱包签名、链上广播不自动重试。
-- 保存 quote request、router、orderId、deposit address 和 tx hash，但不要记录 access token、完整签名消息或私钥材料。
+- `/quote`, `/order-status`, and `/history` may use limited exponential backoff for network errors, 429 responses, and 5xx responses.
+- Do not automatically retry `/swap` or `/report`. If the submission result is uncertain, first query using the existing order ID, transaction hash, or history; do not blindly resubmit.
+- Do not automatically retry wallet signatures or on-chain broadcasts.
+- Save the quote request, router, order ID, deposit address, and transaction hash, but do not log the access token, complete signing message, or private-key material.
