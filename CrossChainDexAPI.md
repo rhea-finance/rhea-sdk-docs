@@ -391,6 +391,7 @@ Base fields:
 | `tokenIn` | string | Yes | Source token ID/address |
 | `tokenOut` | string | Yes | Destination token ID/address |
 | `amountIn` | string | Yes | Integer string in the token's smallest unit |
+| `quoteWaitingTimeMs` | number | No | near intents waiting time |
 | `slippage` | number | No | Basis points; `50` means 0.5% |
 | `sender` | string | Yes | Source wallet or MCA account |
 | `recipient` | string | No | Final recipient address |
