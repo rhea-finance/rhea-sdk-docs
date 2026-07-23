@@ -1,4 +1,4 @@
-# MCA Swap HTTP API Guide
+# RHEA CrossChainDex HTTP API Guide
 
 This document describes the HTTP endpoints, request fields, response fields, and complete call sequences for MCA flows in the unified Swap service.
 
