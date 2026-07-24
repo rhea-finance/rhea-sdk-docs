@@ -149,105 +149,112 @@ function classifySwap(input: {
 
 `POST /api/swap/order-submit` is only used for regular signed orders such as CoW. It is not required for MCA deposit or withdraw flows.
 
-Supported-token metadata is provided by the separate `GET /get_multichain_lending_tokens_data` endpoint outside `/api/swap/*`. See "Supported Token Query Endpoint" below.
+Supported chain families: EVM, Solana, Aptos, NEAR, Tron, Bitcoin, Zcash, and Sui. How to load the product token list and chain coverage is described in [Supported chains and tokens](#supported-chains-and-tokens).
 
-## Chain IDs and Token IDs
+## Supported chains and tokens
 
-### Complete Supported Chain List
+The product support list matches `multi-chain-lending` Trade: **18 mainnets**. Use the HTTP API chain ID for `fromChain` / `toChain` in Swap calls, and the token-query alias when fetching token metadata.
 
-The following is the current product-level support list used by `multi-chain-lending` Trade. It includes 18 mainnets. Use the "HTTP API chain ID" for `fromChain` / `toChain`, and the "Token query alias" when querying tokens.
+| Chain | Type | HTTP / SDK chain ID | Token query alias |
+| --- | --- | --- | --- |
+| Ethereum | EVM | `1` | `eth` |
+| BNB Smart Chain | EVM | `56` | `bsc` |
+| Arbitrum One | EVM | `42161` | `arb` |
+| Base | EVM | `8453` | `base` |
+| Optimism | EVM | `10` | `op` |
+| Berachain | EVM | `1385` | `bera` |
+| Monad | EVM | `143` | `monad` |
+| X Layer | EVM | `196` | `xlayer` |
+| Polygon PoS | EVM | `137` | `pol` |
+| Gnosis Chain | EVM | `100` | `gnosis` |
+| Plasma | EVM | `9745` | `plasma` |
+| Solana | Non-EVM | `solana` | `sol` |
+| Bitcoin | Non-EVM | `btc` | `btc` |
+| NEAR | Non-EVM | `near` | `near` |
+| Zcash | Non-EVM | `zcash` | `zcash` (also accepts `zec`) |
+| Aptos | Non-EVM | `aptos` | `aptos` |
+| Tron | Non-EVM | `tron` | `tron` |
+| Sui | Non-EVM | `sui` | `sui` |
 
-| Chain | Type | HTTP API chain ID | Token query alias | SDK ChainRef |
-| --- | --- | --- | --- | --- |
-| Ethereum | EVM | `1` | `eth` | `eip155:1` |
-| BNB Smart Chain | EVM | `56` | `bsc` | `eip155:56` |
-| Arbitrum One | EVM | `42161` | `arb` | `eip155:42161` |
-| Base | EVM | `8453` | `base` | `eip155:8453` |
-| Optimism | EVM | `10` | `op` | `eip155:10` |
-| Berachain | EVM | `1385` | `bera` | `eip155:1385` |
-| Monad | EVM | `143` | `monad` | `eip155:143` |
-| X Layer | EVM | `196` | `xlayer` | `eip155:196` |
-| Polygon PoS | EVM | `137` | `pol` | `eip155:137` |
-| Gnosis Chain | EVM | `100` | `gnosis` | `eip155:100` |
-| Plasma | EVM | `9745` | `plasma` | `eip155:9745` |
-| Solana | Non-EVM | `solana` | `sol` | `solana:mainnet` |
-| Bitcoin | Non-EVM | `btc` | `btc` | `bitcoin:mainnet` |
-| NEAR | Non-EVM | `near` | `near` | `near:mainnet` |
-| Zcash | Non-EVM | `zcash` | `zcash`; `zec` is also accepted | `zcash:mainnet` |
-| Aptos | Non-EVM | `aptos` | `aptos` | `aptos:mainnet` |
-| Tron | Non-EVM | `tron` | `tron` | `tron:mainnet` |
-| Sui | Non-EVM | `sui` | `sui` | `sui:mainnet` |
+"Supported" means the product can load tokens for that chain and send them into the unified quote flow. It does **not** guarantee a route for every pair. Live liquidity, routers, amount, and service status still decide whether a quote succeeds.
 
-"Supported" means the product loads tokens for the chain and allows them into the unified quote flow. It does not guarantee an executable route between every token pair. Routing also depends on live liquidity, router/bridge capabilities, amount, and service availability. A successful `POST /api/swap/quote` response with a valid `bestQuote.router` is the final authority.
+### Token coverage (Unified Swap)
 
-### Supported Token Query Endpoint
+Across the 18 product chains above, Unified Swap currently covers **4,000+** tokens (same-chain DEX metadata plus cross-chain Intents tokens, deduplicated per direction). Snapshot: 2026-07-24. Counts change as liquidity providers and Intents listings update; always fetch the live token APIs below for the current list.
 
-Query the multichain token metadata used by Trade by chain:
+### How to fetch supported tokens
+
+Token discovery uses HTTP endpoints **outside** `/api/swap/*`. The SDK does not wrap these calls; applications should `fetch` them directly and map results into `AssetRef` when calling `client.quote()`.
+
+#### 1. Product token list (recommended for Trade UI)
 
 ```http
 GET https://api.rhea.finance/get_multichain_lending_tokens_data?chains=<COMMA_SEPARATED_ALIASES>
 ```
 
-This endpoint does not use the `/api/swap/*` envelope. A successful response directly returns an array of token objects. It is used for token discovery and metadata display, not to determine whether a token pair currently has a route.
-
-Query parameters:
-
-| Parameter | Required | Description |
-| --- | --- | --- |
-| `chains` | Yes | One or more token query aliases separated by commas; aliases must come from the table above |
-
-Query one chain:
-
-```bash
-curl "https://api.rhea.finance/get_multichain_lending_tokens_data?chains=eth"
-```
-
-Query all currently supported product chains in one request:
+Query all currently supported product chains:
 
 ```bash
 curl "https://api.rhea.finance/get_multichain_lending_tokens_data?chains=bsc,eth,arb,base,op,bera,monad,xlayer,pol,gnosis,plasma,sol,btc,near,zcash,zec,aptos,tron,sui"
 ```
 
-Response type:
+A successful response is a **JSON array** of token objects (not the `/api/swap` `{ code, data, msg }` envelope). Typical fields:
 
-```ts
-interface SupportedToken {
-  assetId: string;
-  decimals: number;
-  blockchain: string;
-  symbol: string;
-  price: number;
-  priceUpdatedAt: string;
-  contractAddress?: string | null;
-  icon?: string;
-  coinType?: string;
-  platform?: string;
-}
+| Field | Description |
+| --- | --- |
+| `assetId` | Multichain / Intents asset ID |
+| `blockchain` | Token query alias (`eth`, `near`, …) |
+| `symbol` | Display symbol |
+| `decimals` | Token decimals |
+| `contractAddress` | On-chain address; may be empty for natives |
+| `price` / `priceUpdatedAt` | Display price only; not a swap quote |
+| `icon` | Optional icon URL |
 
-type SupportedTokenResponse = SupportedToken[];
+Integration tips:
+
+- Group by `blockchain`; do not merge tokens by `symbol` alone.
+- For `quote()`, pass the chain-specific token address/ID as `AssetRef.address`, and use the HTTP/SDK chain ID in `fromChain` / `toChain` / `AssetRef.chain` (for example Base `"8453"`, Solana `"solana"`).
+- Presence in this list means the token is discoverable. Confirm a route with `client.quote()` (or `POST /api/swap/quote`) before trading.
+- Prefer short-lived cache; refresh periodically instead of hard-coding the list.
+
+#### 2. Per-chain token price metadata
+
+```http
+GET https://api.rhea.finance/get_chain_prices?chain=<TOKEN_QUERY_ALIAS>
 ```
 
-Field descriptions:
+Example:
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `assetId` | string | Intents/multichain asset ID; do not use it as `tokenIn` / `tokenOut` on every chain without conversion |
-| `decimals` | number | Token decimals |
-| `blockchain` | string | Chain alias for the token; it should match the requested `chains` set |
-| `symbol` | string | Display symbol; it cannot replace the token address/ID |
-| `price` | number | Current price for optional display purposes; do not use it as quote output |
-| `priceUpdatedAt` | string | Price update timestamp |
-| `contractAddress` | string \| null | On-chain token address; it may be empty for native assets |
-| `icon` | string | Optional icon URL |
-| `coinType` | string | Coin type used by chains such as Sui |
-| `platform` | string | Token source platform, such as an Intents/router provider |
+```bash
+curl "https://api.rhea.finance/get_chain_prices?chain=eth"
+curl "https://api.rhea.finance/get_chain_prices?chain=bsc"
+curl "https://api.rhea.finance/get_chain_prices?chain=base"
+```
 
-Integration rules:
+`chain` is required and must be a **token query alias** (`eth`, `bsc`, `base`, …). A successful response uses `{ code, data, msg }`:
 
-- Group results by `blockchain`; never merge tokens solely by `symbol`.
-- When requesting a quote, use the token address/ID required by that chain. On the MCA side, still remove the `mca:`, `nep141:`, or `nep245:` prefix as described below.
-- A token appearing in this response only means it is discoverable by the product. Before placing an order, call `/api/swap/quote` and verify a valid `bestQuote.router`.
-- Do not permanently hard-code the response in the client. Short-lived caching is acceptable, but refresh must remain possible.
+```ts
+// code === 0 && msg === "success"
+type ChainPricesResponse = {
+  code: number;
+  msg: string;
+  data: Record<
+    string,
+    {
+      address: string;
+      chainId: number;
+      decimals: number;
+      symbol: string;
+      name?: string;
+      price: string;
+      logoURI?: string;
+      updated_at?: number;
+    }
+  >;
+};
+```
+
+Use this endpoint for same-chain token metadata and display prices. It is keyed by token address. It does not replace `get_multichain_lending_tokens_data` for the full multi-chain Trade selector, and some non-EVM aliases may return an empty `data` object.
 
 ### Native Asset Token IDs
 
