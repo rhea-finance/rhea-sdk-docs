@@ -230,7 +230,29 @@ const quoteRequest: QuoteRequest = {
 const quote = await client.quote(quoteRequest);
 ```
 
-`quote()` calls `POST /api/swap/quote`. `quoteWaitingTimeMs` is a quote API request parameter used by routes such as Near Intents to wait for a quote. It is not an on-chain RPC timeout. The SDK sends `3000` when the field is omitted.
+`quote()` calls `POST /api/swap/quote`. The frontend can set `quoteWaitingTimeMs` on every `QuoteRequest` to control how long the quote service may wait for Near Intents and similar intent-based routes. The SDK sends `3000` when the field is omitted.
+
+#### 3.3.1 Configure the Near Intents quote wait
+
+`quoteWaitingTimeMs` is a first-class SDK parameter. Pass it directly to `client.quote()`; do not put it in `extensions` or an executor configuration.
+
+```ts
+// Frontend: allow Near Intents up to 5 seconds to return a route quote.
+const quote = await client.quote({
+  ...quoteRequest,
+  quoteWaitingTimeMs: 5000,
+});
+```
+
+| Rule | Detail |
+| --- | --- |
+| Who sets it | The frontend or any other SDK caller, on each `client.quote(request)` call. |
+| Unit and range | Milliseconds; must be a non-negative integer. |
+| Default | `3000` (3 seconds) when omitted. Pass it explicitly when the product needs to control the Near Intents latency/route-availability tradeoff. |
+| Typical use | Increase it, for example to `5000`–`10000`, when Near Intents needs more time to return a quote. Decrease it, for example to `0`–`1000`, when a faster response is more important than waiting for that route. |
+| Scope | Quote aggregation for intent-based routes such as `nearintents` and `preswap-nearintents`. It also applies to MCA deposit/withdraw quote requests whose Near Intents previews are produced by the same quote call. |
+
+This value limits the server-side route-quote wait only. It does **not** control the SDK HTTP request timeout, wallet signing, source-chain confirmation, bridge settlement, or `waitFor: "completed"` order polling. If the frontend configures a value close to or above the client's `timeoutMs`, increase `timeoutMs` enough to include the quote wait plus network overhead; otherwise the HTTP request may time out first.
 
 ### 3.4 Execute the swap directly
 
@@ -335,7 +357,7 @@ Terminal statuses are `completed`, `failed`, `refunded`, and `expired`.
 | `tokenOut` | `AssetRef` | Yes | Asset being received. |
 | `amountIn` | `string` | Yes | A non-negative base-unit decimal integer string. Do not pass `"1.5"` or scientific notation. |
 | `slippageBps` | `number` | Yes | Slippage in basis points. `50` means 0.5%; `100` means 1%. |
-| `quoteWaitingTimeMs` | `number` | No | Time the quote API may wait for route quotes, in milliseconds. Must be a non-negative integer. Default: `3000`. |
+| `quoteWaitingTimeMs` | `number` | No | **Frontend-configurable Near Intents quote wait.** Milliseconds; must be a non-negative integer. Default: `3000`. See [Configure the Near Intents quote wait](#331-configure-the-near-intents-quote-wait). |
 | `sender` | `string` | Yes | Sender address on the source chain. |
 | `recipient` | `string` | No | Recipient address on the destination chain. Cross-chain requests should normally provide it explicitly. |
 | `extensions` | `Record<string,unknown>` | No | Additional fields forwarded to the API. Regular applications should not use this to replace standard fields. |
