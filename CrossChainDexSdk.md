@@ -183,6 +183,8 @@ The EVM executor does not read the currently connected chain. It uses `tx.chainI
 
 ### 3.2 Create a SwapClient
 
+To request API access and an API key, sign in to the [RHEA Boss portal](https://boss.rhea.finance/#/login). Provide the issued credential through `apiKey` for a static credential or `getAccessToken` when your application refreshes access tokens.
+
 ```ts
 import { SwapClient } from "@rhea-finance/cross-chain-aggregation-dex";
 
@@ -322,7 +324,7 @@ Terminal statuses are `completed`, `failed`, `refunded`, and `expired`.
 | Field | Type | Required | Description and default |
 | --- | --- | --- | --- |
 | `baseUrl` | `string` | Yes | API base URL, for example `https://api.rhea.finance`. A trailing `/` is removed. |
-| `apiKey` | `string` | No | API credential sent with requests. |
+| `apiKey` | `string` | No | Static API credential sent with requests. Request one through the [RHEA Boss portal](https://boss.rhea.finance/#/login). |
 | `getAccessToken` | `() => string \| Promise<string>` | No | Reads an access token before each request. Use this for refreshable sessions. |
 | `fetch` | `typeof globalThis.fetch` | No | Custom fetch implementation. The SDK binds its invocation context to avoid browser `Illegal invocation` errors. It is normally required on Node.js 16. |
 | `headers` | `Record<string,string>` or function | No | Additional request headers. The function form may return a promise. |

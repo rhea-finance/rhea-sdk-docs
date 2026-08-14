@@ -19,6 +19,8 @@ The production API origin is fixed:
 https://api.rhea.finance
 ```
 
+To request API access and an API key, sign in to the [RHEA Boss portal](https://boss.rhea.finance/#/login).
+
 All Swap APIs use `https://api.rhea.finance/api/swap/*`. Examples represent the access token with the following variable:
 
 ```bash
