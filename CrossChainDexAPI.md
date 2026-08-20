@@ -8,6 +8,7 @@ Scope:
 - Withdrawing from an MCA to its bound NEAR wallet.
 - Withdrawing from an MCA to another chain through Intents / the multichain relayer.
 - Transaction reporting, order status, and history.
+- Confidential 1Click swaps and wallet-authorized confidential history.
 
 This document does not cover MCA creation, wallet binding, lending, portfolio, or asset-query endpoints.
 
@@ -147,6 +148,8 @@ function classifySwap(input: {
 | `POST` | `/api/swap/swap` | Build a regular/deposit transaction or submit an MCA withdraw relayer request |
 | `POST` | `/api/swap/report` | Register history after obtaining a transaction hash or relayer orderId |
 | `GET` | `/api/swap/order-status` | Query the status of a submitted order |
+| `POST` | `/api/swap/history/auth/challenge` | Create a wallet-signing challenge for confidential history |
+| `POST` | `/api/swap/history/auth/verify` | Verify the wallet proof and issue a short-lived history token |
 | `GET` | `/api/swap/history` | Query Swap history by sender/search value |
 
 `POST /api/swap/order-submit` is only used for regular signed orders such as CoW. It is not required for MCA deposit or withdraw flows.
@@ -338,8 +341,8 @@ Field requirements:
 | `signer.identityKey` | string | Yes for MCA | Bound-wallet identity; the relayer signing wallet must match it |
 | `depositSigner` | object | No | Compatibility field for the deposit signer |
 | `useAsCollateral` | boolean | Yes for deposit | Whether to use the deposited asset as collateral; explicitly send `true` or `false` |
-| `needDecreaseCollateral` | boolean | Yes for withdraw | `true` when the current token's Burrow collateral balance is greater than zero |
-| `decreaseCollateralAmountBurrow` | string | Yes for withdraw | When `true`, send the current token's full collateral balance; when `false`, send `"0"`. This is not `amountIn` |
+| `needDecreaseCollateral` | boolean | Yes for withdraw | `true` when `max(amountBurrow - suppliedBalance, 0)` is greater than zero |
+| `decreaseCollateralAmountBurrow` | string | Yes for withdraw | Required collateral decrease in Burrow decimals: `max(amountBurrow - suppliedBalance, 0)`. Send a canonical non-exponential decimal; when the result is zero, send `"0"`. |
 | `withdrawAll` | boolean | No | Send `true` for Max or when the requested amount reaches `99.9999%` of the available balance; omit or send `false` for a partial withdrawal |
 | `recipientMsgSignatures` | string[] | Conditional | Pass through an existing recipient proof only; this is not the `messageToSign` signature and is omitted by default |
 | `depositSignerProofSignatures` | string[] | Conditional | Pass through an existing deposit-signer proof only; omitted by default |
@@ -354,15 +357,25 @@ New integrations should prefer `flow`, `mcaAccountId`, and `signer`. `mcaFlow`, 
 Resolve the withdraw collateral policy before requesting a quote:
 
 ```ts
-const needDecreaseCollateral = decimalGt(collateralBalance, "0");
-const decreaseCollateralAmountBurrow = needDecreaseCollateral
-  ? collateralBalance
-  : "0";
+import Big from "big.js";
+
+const amountAfterSupplied = new Big(amountBurrow).minus(
+  suppliedBalance || "0"
+);
+const decreaseCollateralAmount = amountAfterSupplied.gt(0)
+  ? amountAfterSupplied
+  : new Big(0);
+const needDecreaseCollateral = decreaseCollateralAmount.gt(0);
+const decreaseCollateralAmountBurrow = decreaseCollateralAmount.toFixed();
 const withdrawAll =
   isMax || decimalGte(amountInHuman, decimalMul(availableBalance, "0.999999"));
 ```
 
 `amountInHuman` is used only to determine whether the withdrawal is close to the full available balance. The `amountIn` sent to the Swap API remains an integer in base units.
+
+In the formula above, `amountBurrow` is the requested withdrawal expanded to Burrow internal decimals (`token decimals + extra_decimals`), matching the precision of `portfolio.supplied[tokenId].balance`. It is a local calculation input and should not be confused with the quote body's token-unit `amountIn` or the legacy optional `mca.amountBurrow` field.
+
+`needDecreaseCollateral` and `decreaseCollateralAmountBurrow` must be derived as one consistent pair. Never send `false` with a positive amount or `true` with `"0"`. This is the same formula used by Lending Withdraw and multi-chain Trade's 2026-08-20 withdraw fix: withdrawals consume `portfolio.supplied[tokenId].balance` first, and only the remaining Burrow amount decreases collateral. When relayer gas is reserved, use the gas-adjusted portfolio snapshot for `suppliedBalance`.
 
 ## Quote API Reference: POST `/api/swap/quote`
 
@@ -402,6 +415,7 @@ Base fields:
 | `tokenOut` | string | Yes | Destination token ID/address |
 | `amountIn` | string | Yes | Integer string in the token's smallest unit |
 | `quoteWaitingTimeMs` | number | No | **Frontend-configurable Near Intents quote wait time (ms).** See [quoteWaitingTimeMs](#quotewaitingtimems-near-intents) below. |
+| `confidentiality` | `"basic"` | No | Enables the confidential 1Click route. Omit it for a public swap. |
 | `slippage` | number | No | Basis points; `50` means 0.5% |
 | `sender` | string | Yes | Source wallet or MCA account |
 | `recipient` | string | No | Final recipient address |
@@ -452,6 +466,26 @@ await swapApi("/api/swap/quote", {
   }),
 });
 ```
+
+#### Confidential swap
+
+Set the first-class `confidentiality` field to `"basic"` on the quote request. This field is independent of `mca`: it can be used by regular or MCA flows when the route supports confidentiality.
+
+```json
+{
+  "fromChain": "8453",
+  "toChain": "solana",
+  "tokenIn": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "tokenOut": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  "amountIn": "1000000",
+  "slippage": 50,
+  "sender": "0xSenderAddress",
+  "recipient": "SolanaRecipientAddress",
+  "confidentiality": "basic"
+}
+```
+
+Pass `confidentiality` through unchanged to `POST /api/swap/swap`. After submission, also send the same value to `POST /api/swap/report`; otherwise the resulting history record is not registered as confidential. Do not send `"public"`, `false`, or a `confidential` boolean—omit the field for the public flow.
 
 ### Response
 
@@ -1226,7 +1260,8 @@ The following is an MCA relayer report example. Omit `multi_addr` for a regular 
   "router": "near-mca-withdraw",
   "tx_type": "mca-withdraw-relayer",
   "multi_addr": "account.near",
-  "swapId": "relayer-order-id"
+  "swapId": "relayer-order-id",
+  "confidentiality": "basic"
 }
 ```
 
@@ -1247,6 +1282,7 @@ Fields:
 | `from_token` | string | Yes | Source token ID |
 | `to_token` | string | Yes | Destination token ID |
 | `deposit_address` | string | Yes | Deposit/status address; use an empty string when unavailable |
+| `confidentiality` | `"basic"` | Conditional for confidential swaps | Send the same value used for quote/build. Omit it for public swaps. |
 | `from_chain` | string | No | Source-chain API chain ID |
 | `to_chain` | string | No | Destination-chain API chain ID |
 | `is_cross_chain` | boolean | No | Whether the route is cross-chain |
@@ -1348,6 +1384,73 @@ Recommended polling policy:
 - Terminal states: stop after success, failure, refund, or expiration.
 - A timeout does not mean failure; direct the user to history for continued tracking.
 
+## Confidential History Authorization
+
+Confidential records require a wallet-scoped token in addition to the normal Swap API credential. The flow is:
+
+1. Call `POST /api/swap/history/auth/challenge` with the connected wallet identity.
+2. Before signing, verify that the returned wallet, chain, and MCA principal still match the request.
+3. Sign `data.signingInput` using the method named by `data.signingMethod`.
+4. Call `POST /api/swap/history/auth/verify` with the `challengeId` and wallet-specific proof.
+5. Query history with `mode=confidential` and send the returned token as `Authentication: Bearer <WALLET_TOKEN>`.
+
+The Swap API key remains in `Authorization`; the wallet token uses the separate `Authentication` header and must not replace it.
+
+### Create challenge: POST `/api/swap/history/auth/challenge`
+
+```json
+{
+  "chainFamily": "evm",
+  "chainId": "1",
+  "walletAddress": "0xWalletAddress",
+  "mcaAccountId": "optional-mca.near"
+}
+```
+
+Request fields:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `chainFamily` | `evm \| solana \| near \| aptos \| sui \| tron \| btc \| zcash` | Yes | Connected wallet family |
+| `chainId` | string | Yes | Current wallet network identifier |
+| `walletAddress` | string | Yes | Address of the wallet that will sign the challenge |
+| `mcaAccountId` | string | No | MCA whose confidential history is being authorized |
+| `identityKey` | string | Conditional | Public/identity key used by chain families or MCA bindings that require it |
+| `bindingIdentityKey` | string | Conditional | Binding identity used by supported bindings such as Zcash MCA authorization |
+| `address` | string | No | Legacy alias; new callers should use `walletAddress` |
+
+The response includes `challengeId`, `expiresAt`, `principalType`, `queryAddress`, `mcaAccountId`, `chainFamily`, `chainId`, `walletAddress`, `identityKey`, `signingMethod`, and `signingInput`. Sign only after checking those identity fields against current application state.
+
+### Verify proof: POST `/api/swap/history/auth/verify`
+
+```json
+{
+  "challengeId": "challenge-id",
+  "proof": {
+    "signature": "wallet-signature"
+  }
+}
+```
+
+`proof` is wallet-specific. For example, NEP-413 additionally returns fields such as `accountId` and `publicKey`, while other signing methods may specify signature encoding/type. Forward the proof required by the challenge's signing method without converting it into an on-chain transaction.
+
+A successful response contains:
+
+```json
+{
+  "token": "short-lived-wallet-token",
+  "tokenType": "Bearer",
+  "expiresIn": 300,
+  "expiresAt": "2026-08-20T12:05:00.000Z",
+  "principalType": "wallet",
+  "queryAddress": "0xWalletAddress",
+  "mcaAccountId": null,
+  "scope": "swap:history:confidential:read"
+}
+```
+
+Verify the returned principal and `queryAddress` against the challenge before using the token. Repeat the authorization flow after the token expires; never persist it as a long-lived API key.
+
 ## History API Reference: GET `/api/swap/history`
 
 ### Request
@@ -1371,6 +1474,17 @@ Query Parameters:
 | `sender` | Yes | General search value; the backend matches a record's `sender`, `recipient`, or `multi_addr`. Pass the MCA account ID directly when querying an MCA |
 | `pageNumber` | No | Page number |
 | `pageSize` | No | Number of records per page |
+| `mode` | Required for confidential history | Send `confidential`; omit it for public history |
+
+Confidential history example:
+
+```bash
+curl "https://api.rhea.finance/api/swap/history?sender=0xWalletAddress&mode=confidential&pageNumber=1&pageSize=20" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Authentication: Bearer $WALLET_TOKEN"
+```
+
+Use the `queryAddress` returned by the verify endpoint as `sender`. A confidential request without a valid wallet token is rejected. Public history keeps the existing request shape and does not send `mode` or `Authentication`.
 
 ### Response
 

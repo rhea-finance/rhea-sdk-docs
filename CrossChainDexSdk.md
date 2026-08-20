@@ -234,6 +234,15 @@ const quote = await client.quote(quoteRequest);
 
 `quote()` calls `POST /api/swap/quote`. The frontend can set `quoteWaitingTimeMs` on every `QuoteRequest` to control how long the quote service may wait for Near Intents and similar intent-based routes. The SDK sends `3000` when the field is omitted.
 
+Set `confidentiality: "basic"` to use the confidential 1Click route. The SDK preserves it through quote and build, and includes it in automatic or manual report payloads. Omit the field for public swaps:
+
+```ts
+const confidentialQuote = await client.quote({
+  ...quoteRequest,
+  confidentiality: "basic",
+});
+```
+
 #### 3.3.1 Configure the Near Intents quote wait
 
 `quoteWaitingTimeMs` is a first-class SDK parameter. Pass it directly to `client.quote()`; do not put it in `extensions` or an executor configuration.
@@ -360,6 +369,7 @@ Terminal statuses are `completed`, `failed`, `refunded`, and `expired`.
 | `amountIn` | `string` | Yes | A non-negative base-unit decimal integer string. Do not pass `"1.5"` or scientific notation. |
 | `slippageBps` | `number` | Yes | Slippage in basis points. `50` means 0.5%; `100` means 1%. |
 | `quoteWaitingTimeMs` | `number` | No | **Frontend-configurable Near Intents quote wait.** Milliseconds; must be a non-negative integer. Default: `3000`. See [Configure the Near Intents quote wait](#331-configure-the-near-intents-quote-wait). |
+| `confidentiality` | `"basic"` | No | Enables the confidential 1Click route and marks the resulting report. Omit for public swaps. |
 | `sender` | `string` | Yes | Sender address on the source chain. |
 | `recipient` | `string` | No | Recipient address on the destination chain. Cross-chain requests should normally provide it explicitly. |
 | `extensions` | `Record<string,unknown>` | No | Additional fields forwarded to the API. Regular applications should not use this to replace standard fields. |
@@ -545,6 +555,16 @@ const result = await client.swap({ quote, waitFor: "completed" });
 ### Withdraw
 
 ```ts
+import { resolveMcaWithdrawPolicy } from "@rhea-finance/cross-chain-aggregation-dex";
+
+const collateral = resolveMcaWithdrawPolicy({
+  amountBurrow,      // requested withdraw in Burrow internal decimals
+  suppliedBalance,   // current token supplied balance, same decimals
+  availableBalance,  // human/display precision, matching amountInHuman
+  amountIn: amountInHuman,
+  isMax,
+});
+
 const quote = await client.quote({
   flow: "withdraw",
   mcaAccountId: "account.near",
@@ -557,11 +577,7 @@ const quote = await client.quote({
   slippageBps: 50,
   sender: "account.near",
   recipient: "0xYourBaseAddress",
-  collateral: {
-    needDecrease: true,
-    decreaseAmountBurrow: "1.0",
-    withdrawAll: false,
-  },
+  collateral,
   executionPreference: "relayer",
 });
 
@@ -578,13 +594,15 @@ Withdraw-only fields:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `collateral.needDecrease` | `boolean` | Yes | Whether Burrow collateral must be decreased. |
-| `collateral.decreaseAmountBurrow` | `string` | Yes | Human-readable Burrow decimal amount, such as `"1.0"`. This is not a token base-unit amount. |
+| `collateral.needDecrease` | `boolean` | No | Compatibility hint only. The SDK derives the API value from `decreaseAmountBurrow` and corrects contradictory input. |
+| `collateral.decreaseAmountBurrow` | `string` | Yes | Required collateral decrease in Burrow decimals: `max(amountBurrow - suppliedBalance, 0)`. The SDK canonicalizes the value and sends `"0"` when supplied balance covers the withdrawal. |
 | `collateral.withdrawAll` | `boolean` | No | Whether to withdraw the full available amount. |
 | `executionPreference` | `"auto" \| "near" \| "relayer"` | No | Default: `"auto"`. Set explicitly to force direct NEAR or relayer execution. |
 | `boundNearAccountId` | `string` | Required for automatic NEAR selection | In `auto` mode, direct NEAR execution is selected only when `toChain === "near"` and `recipient` exactly matches this field. Otherwise, the relayer is selected. |
 
 For direct NEAR execution, the NEAR executor submits `nearMcaWithdrawTx`. For relayer execution, the executor selected by `signerChain` uses `signMessage()` to sign the API-provided `messageToSign`, after which the SDK submits the order. Application code only calls `swap()`.
+
+Derive the collateral policy from the same balances displayed by the application, as shown above. This mirrors Lending Withdraw and multi-chain Trade's 2026-08-20 withdraw fix: `decreaseCollateralAmountBurrow = max(amountBurrow - suppliedBalance, 0)`, and `needDecreaseCollateral` is true exactly when that result is positive. When relayer gas is reserved, use the supplied balance from the gas-adjusted portfolio snapshot, matching the amount used for the quote. `withdrawAll` remains an independent Max/available-balance decision.
 
 ## 9. Lifecycle, errors, and cancellation
 
@@ -668,6 +686,8 @@ await client.buildRaw(rawBuildRequest);
 await client.submitOrderRaw(rawSubmitRequest);
 await client.getOrderStatusRaw(rawStatusRequest);
 await client.reportRaw(rawReportRequest);
+await client.createHistoryAuthChallenge(rawChallengeRequest);
+await client.verifyHistoryAuthChallenge(rawVerifyRequest);
 await client.getHistoryRaw(rawHistoryRequest);
 ```
 
@@ -699,6 +719,36 @@ const history = await client.getHistory({
 ```
 
 The SDK applies `status` filtering locally. The returned page has `filteredLocally: true`.
+
+For confidential history, authorize the connected wallet, then query with the returned short-lived token:
+
+```ts
+const authorization = await client.authorizeConfidentialHistory(
+  {
+    chainFamily: "evm",
+    chainId: "1",
+    walletAddress: connectedAddress,
+    // Include mcaAccountId when authorizing an MCA principal.
+  },
+  async (challenge) => {
+    // Check the wallet/network has not changed, then sign exactly this message.
+    const signature = await signer.signMessage(
+      challenge.signingInput.message
+    );
+    return { signature };
+  }
+);
+
+const confidentialHistory = await client.getHistory({
+  sender: authorization.queryAddress,
+  mode: "confidential",
+  walletToken: authorization.token,
+  page: 1,
+  pageSize: 20,
+});
+```
+
+The callback returns the wallet-specific proof required by `challenge.signingMethod`; NEP-413 and other chain families may require additional proof fields. `authorizeConfidentialHistory()` validates that the challenge and verified token refer to the requested principal before returning them. The SDK sends the normal API credential in `Authorization` and the wallet token separately in `Authentication`. Public history omits `mode` and `walletToken`.
 
 ## 12. Amount utilities
 
