@@ -8,85 +8,113 @@ Supported chain families: EVM, Solana, Aptos, NEAR, Tron, Bitcoin, Zcash, and Su
 
 ## Supported chains and tokens
 
-The product support list matches `multi-chain-lending` Trade: **18 mainnets**. Use the HTTP API chain ID for `fromChain` / `toChain` in Swap calls, and the token-query alias when fetching token metadata.
+The product support list matches `multi-chain-lending` Trade: **25 mainnets**. Use the HTTP API chain ID for `fromChain` / `toChain` in Swap calls. Token-list endpoints use the separate numeric ID shown below; for EVM chains the two IDs are the same.
 
-| Chain | Type | HTTP / SDK chain ID | Token query alias |
-| --- | --- | --- | --- |
-| Ethereum | EVM | `1` | `eth` |
-| BNB Smart Chain | EVM | `56` | `bsc` |
-| Arbitrum One | EVM | `42161` | `arb` |
-| Base | EVM | `8453` | `base` |
-| Optimism | EVM | `10` | `op` |
-| Berachain | EVM | `1385` | `bera` |
-| Monad | EVM | `143` | `monad` |
-| X Layer | EVM | `196` | `xlayer` |
-| Polygon PoS | EVM | `137` | `pol` |
-| Gnosis Chain | EVM | `100` | `gnosis` |
-| Plasma | EVM | `9745` | `plasma` |
-| Solana | Non-EVM | `solana` | `sol` |
-| Bitcoin | Non-EVM | `btc` | `btc` |
-| NEAR | Non-EVM | `near` | `near` |
-| Zcash | Non-EVM | `zcash` | `zcash` (also accepts `zec`) |
-| Aptos | Non-EVM | `aptos` | `aptos` |
-| Tron | Non-EVM | `tron` | `tron` |
-| Sui | Non-EVM | `sui` | `sui` |
+| Chain | Type | HTTP / SDK chain ID | Token-list chain ID | `blockchain` alias |
+| --- | --- | --- | --- | --- |
+| Ethereum | EVM | `1` | `1` | `eth` |
+| Optimism | EVM | `10` | `10` | `op` |
+| Avalanche | EVM | `43114` | `43114` | `avax` |
+| Robinhood Chain | EVM | `4663` | `4663` | `robinhood` |
+| Katana | EVM | `747474` | `747474` | `katana` |
+| Sonic | EVM | `146` | `146` | `sonic` |
+| Unichain | EVM | `130` | `130` | `unichain` |
+| Pharos | EVM | `1672` | `1672` | `pharos` |
+| Tempo | EVM | `4217` | `4217` | `tempo` |
+| BNB Smart Chain | EVM | `56` | `56` | `bsc` |
+| Gnosis Chain | EVM | `100` | `100` | `gnosis` |
+| Polygon PoS | EVM | `137` | `137` | `pol` |
+| Monad | EVM | `143` | `143` | `monad` |
+| X Layer | EVM | `196` | `196` | `xlayer` |
+| Base | EVM | `8453` | `8453` | `base` |
+| Plasma | EVM | `9745` | `9745` | `plasma` |
+| Arbitrum One | EVM | `42161` | `42161` | `arb` |
+| Berachain | EVM | `80094` | `80094` | `bera` |
+| Tron | Non-EVM | `tron` | `195` | `tron` |
+| Solana | Non-EVM | `solana` | `501` | `sol` |
+| Sui | Non-EVM | `sui` | `784` | `sui` |
+| NEAR | Non-EVM | `near` | `900001` | `near` |
+| Bitcoin | Non-EVM | `btc` | `900002` | `btc` |
+| Zcash | Non-EVM | `zcash` | `900010` | `zec` |
+| Aptos | Non-EVM | `aptos` | `900012` | `aptos` |
 
 "Supported" means the product can load tokens for that chain and send them into the unified quote flow. It does **not** guarantee a route for every pair. Live liquidity, routers, amount, and service status still decide whether a quote succeeds.
 
 ### Token coverage (Unified Swap)
 
-Across the 18 product chains above, Unified Swap currently covers **4,000+** tokens (same-chain DEX metadata plus cross-chain Intents tokens, deduplicated per direction). Snapshot: 2026-07-24. Counts change as liquidity providers and Intents listings update; always fetch the live token APIs below for the current list.
+Token coverage is dynamic and direction-specific. The from-token list combines same-chain routing metadata with cross-chain-capable assets, while the cross-chain to-token list is maintained independently. Do not hard-code a token count or assume every from token can also be selected as a cross-chain destination; fetch both live endpoints described below.
 
-### How to fetch supported tokens
+### How to load supported tokens
 
-Token discovery uses HTTP endpoints **outside** `/api/swap/*`. The SDK does not wrap these calls; applications should `fetch` them directly and map results into `AssetRef` when calling `client.quote()`.
+Use the SDK methods for application selectors. Both methods return the same normalized `SwapTokenListItem[]` shape, even though the two HTTP endpoints have different raw response formats:
 
-#### 1. Product token list (recommended for Trade UI)
+```ts
+const fromTokens = await client.getFromTokens({ chainId: 8453 });
+const crossChainToTokens = await client.getCrossChainToTokens({ chainId: 501 });
 
-```http
-GET https://api.rhea.finance/get_multichain_lending_tokens_data?chains=<COMMA_SEPARATED_ALIASES>
+const tokenIn = fromTokens.find((token) => token.symbol === "USDC")!;
+const tokenOut = crossChainToTokens.find((token) => token.symbol === "USDC")!;
+
+const quote = await client.quote({
+  fromChain: tokenIn.chain,
+  toChain: tokenOut.chain,
+  tokenIn,
+  tokenOut,
+  amountIn: "1000000",
+  slippageBps: 50,
+  sender: "0x...",
+  recipient: "...",
+});
 ```
 
-Query all currently supported product chains:
+`chainId` is the numeric **token-list chain ID** from the table above. For same-chain tokenOut, reuse `getFromTokens`; call `getCrossChainToTokens` only for a destination on another chain.
 
-```bash
-curl "https://api.rhea.finance/get_multichain_lending_tokens_data?chains=bsc,eth,arb,base,op,bera,monad,xlayer,pol,gnosis,plasma,sol,btc,near,zcash,zec,aptos,tron,sui"
+The normalized item extends `AssetRef`:
+
+```ts
+interface SwapTokenListItem extends AssetRef {
+  chain: ChainRef;
+  address: string;
+  symbol: string;
+  decimals: number;
+  isNative: boolean;
+  tokenListChainId: number;
+  blockchain: string;
+  assetId: string;
+  contractAddress: string | null;
+  coinType: string | null;
+  name: string | null;
+  logoURI: string | null;
+  price: string | number | null;
+  priceUpdatedAt: number | null;
+  sources: string[];
+  raw: Record<string, unknown>;
+}
 ```
 
-A successful response is a **JSON array** of token objects (not the `/api/swap` `{ code, data, msg }` envelope). Typical fields:
+`address` and `assetId` contain the identifier accepted by the unified quote API. `contractAddress` separately preserves the on-chain contract/mint when available and is `null` for native assets. Unknown backend fields remain available in `raw`.
 
-| Field | Description |
-| --- | --- |
-| `assetId` | Multichain / Intents asset ID |
-| `blockchain` | Token query alias (`eth`, `near`, …) |
-| `symbol` | Display symbol |
-| `decimals` | Token decimals |
-| `contractAddress` | On-chain address; may be empty for natives |
-| `price` / `priceUpdatedAt` | Display price only; not a swap quote |
-| `icon` | Optional icon URL |
+The methods cache successful lists for 10 minutes per direction and chain, and merge concurrent identical loads. Failures are never cached. Configure `tokenListCacheTtlMs`, or set it to `0` to disable caching. Requests with an `AbortSignal` are not shared with another caller.
 
-Integration tips:
+The corresponding HTTP endpoints are documented below for server integrations that do not use the SDK.
 
-- Group by `blockchain`; do not merge tokens by `symbol` alone.
-- For `quote()`, pass the chain-specific token address/ID as `AssetRef.address`, and use the HTTP/SDK chain ID in `fromChain` / `toChain` / `AssetRef.chain` (for example Base `"8453"`, Solana `"solana"`).
-- Presence in this list means the token is discoverable. Confirm a route with `client.quote()` (or `POST /api/swap/quote`) before trading.
-- Prefer short-lived cache; refresh periodically instead of hard-coding the list.
-
-#### 2. Per-chain token price metadata
+#### 1. From-token list
 
 ```http
-GET https://api.rhea.finance/get_chain_prices?chain=<TOKEN_QUERY_ALIAS>
+GET https://api.rhea.finance/get_chain_prices?chain=<NUMERIC_CHAIN_ID>
 ```
 
 Example:
 
 ```bash
-curl "https://api.rhea.finance/get_chain_prices?chain=eth"
-curl "https://api.rhea.finance/get_chain_prices?chain=bsc"
-curl "https://api.rhea.finance/get_chain_prices?chain=base"
+curl "https://api.rhea.finance/get_chain_prices?chain=1"
+curl "https://api.rhea.finance/get_chain_prices?chain=56"
+curl "https://api.rhea.finance/get_chain_prices?chain=8453"
 ```
 
-`chain` is required and must be a **token query alias** (`eth`, `bsc`, `base`, …). A successful response uses `{ code, data, msg }`:
+`chain` is required and uses the token-list registry's numeric ID. EVM chains use their normal chain ID. Common non-EVM IDs are Solana `501`, Tron `195`, Sui `784`, NEAR `900001`, Bitcoin `900002`, Zcash `900010`, and Aptos `900012`.
+
+A successful response uses `{ code, data, msg }`:
 
 ```ts
 // code === 0 && msg === "success"
@@ -109,7 +137,50 @@ type ChainPricesResponse = {
 };
 ```
 
-Use this endpoint for same-chain token metadata and display prices. It is keyed by token address. It does not replace `get_multichain_lending_tokens_data` for the full multi-chain Trade selector, and some non-EVM aliases may return an empty `data` object.
+Use every returned row as the chain's from-token list. The same list is also used for tokenOut when the source and destination chains are the same.
+
+#### 2. Cross-chain to-token list
+
+```http
+GET https://api.rhea.finance/api/swap/supported_to_tokens?chain=<NUMERIC_CHAIN_ID>
+```
+
+Example:
+
+```bash
+curl "https://api.rhea.finance/api/swap/supported_to_tokens?chain=8453"
+```
+
+The response uses the standard envelope and returns the final destination list in `data.tokens`:
+
+```ts
+type SupportedToTokensResponse = {
+  code: number;
+  msg: string;
+  data: {
+    tokens: Array<{
+      address?: string;
+      assetId?: string;
+      symbol: string;
+      decimals: number;
+      logoURI?: string;
+      price?: string | number;
+      isNative?: boolean;
+      coinType?: string;
+      sources?: string[];
+    }>;
+  };
+};
+```
+
+Use this endpoint only when tokenOut is on a different chain from tokenIn. The returned rows are already the final supported tokenOut list; do not filter them again with legacy `crossChainTo` or `sameChain` flags.
+
+Integration rules:
+
+- Never build both selectors from one combined token list.
+- Do not merge tokens by symbol alone; use chain plus address, asset ID, or coin type.
+- Pass the selected normalized token to `client.quote()` and still confirm route availability with the quote API.
+- Invalidate a selected cross-chain tokenOut if a refreshed destination list no longer contains its chain and `address` pair.
 
 ## 1. What the SDK does
 
@@ -296,7 +367,9 @@ if (result.status === "completed") {
 }
 ```
 
-`"completed"` polls the API only when the build response contains a queryable `orderId`. The default polling interval is 5 seconds and the default timeout is 250 seconds. A timeout throws `ORDER_TIMEOUT`, but it does not revert an already submitted on-chain transaction.
+`"completed"` polls the order-status API whenever the swap has a queryable order reference. Confidential swaps also require order-status polling when they are same-chain. For confidential Near Intents builds, the SDK uses `deposit.orderId` when present and otherwise uses `deposit.depositAddress` as the status key. If a cross-chain or confidential swap does not provide a usable status key, the SDK throws `INVALID_API_RESPONSE` at the `status` stage instead of treating source-chain confirmation as completion.
+
+The default polling interval is 5 seconds. There is no default polling timeout; an explicit timeout throws `ORDER_TIMEOUT`, but it does not revert an already submitted on-chain transaction.
 
 ### 3.5 Check final delivery status
 
@@ -342,6 +415,7 @@ Terminal statuses are `completed`, `failed`, `refunded`, and `expired`.
 | `logger` | `SdkLogger` | No | Receives structured `api.request`, `api.response`, and `api.retry` entries. |
 | `executors` | `readonly ChainExecutor[]` | Required for execution | Wallet executors. May be omitted when only calling `quote()` or `buildSwap()`. |
 | `maxQuoteAgeMs` | `number \| null` | No | Maximum local quote age in milliseconds. Default: `30000`. Set to `null` to disable the local age check; an API-provided `expiresAt` still applies. |
+| `tokenListCacheTtlMs` | `number` | No | Successful token-list cache lifetime in milliseconds. Default: `600000` (10 minutes). Set to `0` to disable. |
 | `reportMode` | `"auto" \| "manual" \| "disabled"` | No | Reporting policy. Default: `"auto"`. A reporting failure does not turn a submitted swap into a failed swap. |
 | `onEvent` | `(event) => void` | No | Receives all lifecycle events. |
 | `now` | `() => number` | No | Custom millisecond clock, mainly for testing. Default: `Date.now`. |
@@ -403,7 +477,7 @@ Wait modes:
 | --- | --- |
 | `submitted` | Returns after the wallet signs or broadcasts the source action. |
 | `source-confirmed` | Waits for source-chain confirmation when the executor provides a confirmation method; otherwise falls back to `submitted`. |
-| `completed` | After source execution, polls the server until a delivery terminal state when an order reference exists. Without an order reference, it returns the source execution result. |
+| `completed` | After source execution, polls the server until a delivery terminal state. Same-chain confidential swaps are included. A cross-chain or confidential swap without a usable status key fails at the `status` stage instead of being reported as completed. |
 
 ### 4.5 SwapExecutionResult
 
@@ -414,7 +488,7 @@ Wait modes:
 | `router` | `string` | Router used for execution. Pass it unchanged when querying order status. |
 | `txHash` | `string?` | Hash of a single source-chain transaction. |
 | `txHashes` | `string[]?` | Hashes of multiple source-chain transactions, such as a NEAR transaction batch. |
-| `orderId` | `string?` | Server order identifier. When present, it can be passed to `waitForOrder()`. |
+| `orderId` | `string?` | Status-query key. Usually a server order identifier; confidential Near Intents may use the deposit address. When present, it can be passed to `waitForOrder()`. |
 | `depositAddress` | `string?` | Cross-chain deposit address. |
 | `report` | `object?` | Reporting state: `reported`, `failed`, or `skipped`. A report warning does not invalidate the source submission. |
 | `raw` | `unknown` | Executor confirmation response or original swap API build data. |
