@@ -296,6 +296,8 @@ const quoteRequest: QuoteRequest = {
   amountIn: "1000000",
   slippageBps: 50,
   quoteWaitingTimeMs: 3000,
+  sameChainTimeoutMs: 500,
+  crossChainTimeoutMs: 3000,
   sender: "0xYourBaseAddress",
   recipient: "YourSolanaAddress",
 };
@@ -303,7 +305,7 @@ const quoteRequest: QuoteRequest = {
 const quote = await client.quote(quoteRequest);
 ```
 
-`quote()` calls `POST /api/swap/quote`. The frontend can set `quoteWaitingTimeMs` on every `QuoteRequest` to control how long the quote service may wait for Near Intents and similar intent-based routes. The SDK sends `3000` when the field is omitted.
+`quote()` calls `POST /api/swap/quote`. The frontend can configure the Near Intents wait plus the same-chain and cross-chain route timeouts on every `QuoteRequest`. The SDK sends the defaults shown above when fields are omitted.
 
 Set `confidentiality: "basic"` to use the confidential 1Click route. The SDK preserves it through quote and build, and includes it in automatic or manual report payloads. Omit the field for public swaps:
 
@@ -314,27 +316,27 @@ const confidentialQuote = await client.quote({
 });
 ```
 
-#### 3.3.1 Configure the Near Intents quote wait
+#### 3.3.1 Configure quote timing
 
-`quoteWaitingTimeMs` is a first-class SDK parameter. Pass it directly to `client.quote()`; do not put it in `extensions` or an executor configuration.
+`quoteWaitingTimeMs`, `sameChainTimeoutMs`, and `crossChainTimeoutMs` are first-class SDK parameters. Pass them directly to `client.quote()`; do not put them in `extensions` or executor configuration.
 
 ```ts
 // Frontend: allow Near Intents up to 5 seconds to return a route quote.
 const quote = await client.quote({
   ...quoteRequest,
   quoteWaitingTimeMs: 5000,
+  sameChainTimeoutMs: 750,
+  crossChainTimeoutMs: 6000,
 });
 ```
 
-| Rule | Detail |
-| --- | --- |
-| Who sets it | The frontend or any other SDK caller, on each `client.quote(request)` call. |
-| Unit and range | Milliseconds; must be a non-negative integer. |
-| Default | `3000` (3 seconds) when omitted. Pass it explicitly when the product needs to control the Near Intents latency/route-availability tradeoff. |
-| Typical use | Increase it, for example to `5000`–`10000`, when Near Intents needs more time to return a quote. Decrease it, for example to `0`–`1000`, when a faster response is more important than waiting for that route. |
-| Scope | Quote aggregation for intent-based routes such as `nearintents` and `preswap-nearintents`. It also applies to MCA deposit/withdraw quote requests whose Near Intents previews are produced by the same quote call. |
+| Field | SDK default | Scope |
+| --- | --- | --- |
+| `quoteWaitingTimeMs` | `3000` | Wait window for Near Intents and similar intent-based route quotes, including MCA previews produced by the quote call. |
+| `sameChainTimeoutMs` | `500` | Timeout budget supplied to same-chain quote routing. |
+| `crossChainTimeoutMs` | `3000` | Timeout budget supplied to cross-chain quote routing. |
 
-This value limits the server-side route-quote wait only. It does **not** control the SDK HTTP request timeout, wallet signing, source-chain confirmation, bridge settlement, or `waitFor: "completed"` order polling. If the frontend configures a value close to or above the client's `timeoutMs`, increase `timeoutMs` enough to include the quote wait plus network overhead; otherwise the HTTP request may time out first.
+All three values use milliseconds and must be non-negative integers. They affect only `POST /api/swap/quote`; the SDK removes them from the subsequent build request. They do **not** control the SDK HTTP timeout, wallet signing, source-chain confirmation, bridge settlement, or order polling. Keep the client's `timeoutMs` above the configured quote budget plus network overhead.
 
 ### 3.4 Execute the swap directly
 
@@ -442,7 +444,9 @@ Terminal statuses are `completed`, `failed`, `refunded`, and `expired`.
 | `tokenOut` | `AssetRef` | Yes | Asset being received. |
 | `amountIn` | `string` | Yes | A non-negative base-unit decimal integer string. Do not pass `"1.5"` or scientific notation. |
 | `slippageBps` | `number` | Yes | Slippage in basis points. `50` means 0.5%; `100` means 1%. |
-| `quoteWaitingTimeMs` | `number` | No | **Frontend-configurable Near Intents quote wait.** Milliseconds; must be a non-negative integer. Default: `3000`. See [Configure the Near Intents quote wait](#331-configure-the-near-intents-quote-wait). |
+| `quoteWaitingTimeMs` | `number` | No | Near Intents quote wait in milliseconds. Must be a non-negative integer. Default: `3000`. See [Configure quote timing](#331-configure-quote-timing). |
+| `sameChainTimeoutMs` | `number` | No | Same-chain route quote timeout in milliseconds. Must be a non-negative integer. Default: `500`. |
+| `crossChainTimeoutMs` | `number` | No | Cross-chain route quote timeout in milliseconds. Must be a non-negative integer. Default: `3000`. |
 | `confidentiality` | `"basic"` | No | Enables the confidential 1Click route and marks the resulting report. Omit for public swaps. |
 | `sender` | `string` | Yes | Sender address on the source chain. |
 | `recipient` | `string` | No | Recipient address on the destination chain. Cross-chain requests should normally provide it explicitly. |

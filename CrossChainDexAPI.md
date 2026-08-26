@@ -422,6 +422,8 @@ Base request body for a regular swap (note that it does not include `mca`):
   "amountIn": "1000000",
   "slippage": 50,
   "quoteWaitingTimeMs": 3000,
+  "sameChainTimeoutMs": 500,
+  "crossChainTimeoutMs": 3000,
   "sender": "0xSenderAddress",
   "recipient": "account.near"
 }
@@ -436,14 +438,16 @@ Base fields:
 | `tokenIn` | string | Yes | Source token ID/address |
 | `tokenOut` | string | Yes | Destination token ID/address |
 | `amountIn` | string | Yes | Integer string in the token's smallest unit |
-| `quoteWaitingTimeMs` | number | No | **Frontend-configurable Near Intents quote wait time (ms).** See [quoteWaitingTimeMs](#quotewaitingtimems-near-intents) below. |
+| `quoteWaitingTimeMs` | number | No | Frontend-configurable Near Intents quote wait in milliseconds. SDK default: `3000`. See [Quote timing parameters](#quote-timing-parameters). |
+| `sameChainTimeoutMs` | number | No | Same-chain route quote timeout in milliseconds. SDK default: `500`. |
+| `crossChainTimeoutMs` | number | No | Cross-chain route quote timeout in milliseconds. SDK default: `3000`. |
 | `confidentiality` | `"basic"` | No | Enables the confidential 1Click route. Omit it for a public swap. |
 | `slippage` | number | No | Basis points; `50` means 0.5% |
 | `sender` | string | Yes | Source wallet or MCA account |
 | `recipient` | string | No | Final recipient address |
 | `mca` | object | Conditional | Include only for a one-sided MCA deposit/withdraw; omit for a regular swap |
 
-#### `quoteWaitingTimeMs` (Near Intents)
+#### Quote timing parameters
 
 > **Important:** `quoteWaitingTimeMs` is a **first-class quote request parameter that the frontend / client may set on every `POST /api/swap/quote` call**. It controls how long the quote service may wait for **Near Intents** (and similar intent-based routers) to return a quote. It is **not** an on-chain RPC timeout, wallet signing timeout, or bridge settlement timer.
 
@@ -454,6 +458,8 @@ Base fields:
 | Default when omitted | Backend / SDK commonly use `3000` (3 seconds). Prefer sending it explicitly from the frontend when Near Intents latency matters. |
 | Typical use | Raise the value (e.g. `5000`–`10000`) if Near Intents quotes often time out; lower it (e.g. `0`–`1000`) for snappier UX when a fast miss is acceptable |
 | Scope | Applies to the quote aggregation wait for intent routes such as `nearintents` / `preswap-nearintents`, **including MCA flows** that build deposit/withdraw previews through Near Intents (e.g. `near-mca-deposit`, `near-mca-withdraw`). MCA preview fields (`nearDepositTx`, `nearMcaWithdrawTx`, `mcaWithdrawToIntents`, etc.) are produced in the same quote request and **are also subject to this timer**. |
+
+The quote endpoint also accepts `sameChainTimeoutMs` and `crossChainTimeoutMs`. They set the timeout budgets supplied to same-chain and cross-chain route quoting respectively. All three timing fields are non-negative integer milliseconds and are quote-only: omit them from `POST /api/swap/swap`. The SDK defaults are `quoteWaitingTimeMs: 3000`, `sameChainTimeoutMs: 500`, and `crossChainTimeoutMs: 3000`.
 
 Example — frontend passes a longer wait for Near Intents:
 
@@ -466,13 +472,15 @@ Example — frontend passes a longer wait for Near Intents:
   "amountIn": "1000000",
   "slippage": 50,
   "quoteWaitingTimeMs": 5000,
+  "sameChainTimeoutMs": 750,
+  "crossChainTimeoutMs": 6000,
   "sender": "0xSenderAddress",
   "recipient": "SolanaRecipientAddress"
 }
 ```
 
 ```ts
-// Frontend: always pass quoteWaitingTimeMs when calling the quote API.
+// Frontend: configure quote timing on the quote request only.
 await swapApi("/api/swap/quote", {
   method: "POST",
   body: JSON.stringify({
@@ -483,6 +491,8 @@ await swapApi("/api/swap/quote", {
     amountIn: "1000000",
     slippage: 50,
     quoteWaitingTimeMs: 5000, // Near Intents quote wait — frontend controlled
+    sameChainTimeoutMs: 750,
+    crossChainTimeoutMs: 6000,
     sender: "0xSenderAddress",
     recipient: "SolanaRecipientAddress",
   }),
@@ -1745,6 +1755,9 @@ const quoteRequest = {
   tokenOut: "0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
   amountIn: "1000000",
   slippage: 50,
+  quoteWaitingTimeMs: 3000,
+  sameChainTimeoutMs: 500,
+  crossChainTimeoutMs: 3000,
   sender: "account.near",
   recipient: "0xRecipientAddress",
   mca: {
