@@ -424,6 +424,7 @@ Base request body for a regular swap (note that it does not include `mca`):
   "quoteWaitingTimeMs": 3000,
   "sameChainTimeoutMs": 500,
   "crossChainTimeoutMs": 3000,
+  "excludeDexs": ["lifi", "rango"],
   "sender": "0xSenderAddress",
   "recipient": "account.near"
 }
@@ -441,11 +442,39 @@ Base fields:
 | `quoteWaitingTimeMs` | number | No | Frontend-configurable Near Intents quote wait in milliseconds. SDK default: `3000`. See [Quote timing parameters](#quote-timing-parameters). |
 | `sameChainTimeoutMs` | number | No | Same-chain route quote timeout in milliseconds. SDK default: `500`. |
 | `crossChainTimeoutMs` | number | No | Cross-chain route quote timeout in milliseconds. SDK default: `3000`. |
+| `excludeDexs` | string[] | No | Routing providers to exclude from this quote request, for example `["lifi", "rango"]`. See [Exclude routing providers](#exclude-routing-providers). |
 | `confidentiality` | `"basic"` | No | Enables the confidential 1Click route. Omit it for a public swap. |
 | `slippage` | number | No | Basis points; `50` means 0.5% |
 | `sender` | string | Yes | Source wallet or MCA account |
 | `recipient` | string | No | Final recipient address |
 | `mca` | object | Conditional | Include only for a one-sided MCA deposit/withdraw; omit for a regular swap |
+
+#### Exclude routing providers
+
+Set `excludeDexs` at the top level of the JSON body sent to `POST /api/swap/quote` to exclude specified routing providers from quote selection. For example, `["lifi", "rango"]` excludes LI.FI and Rango. Omit the field when no provider exclusion is needed. Include the same array when refreshing the quote to keep the same exclusions.
+
+The Trade page URL may use `?excludeDexs=lifi,rango`; the corresponding HTTP request body uses a JSON string array, not the comma-separated string `"lifi,rango"`.
+
+Example — quote 1 native S on Sonic (`146`) to USDC on Base (`8453`), excluding LI.FI and Rango:
+
+```json
+{
+  "fromChain": "146",
+  "toChain": "8453",
+  "tokenIn": "0x0000000000000000000000000000000000000000",
+  "tokenOut": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+  "amountIn": "1000000000000000000",
+  "slippage": 100,
+  "quoteWaitingTimeMs": 6000,
+  "sameChainTimeoutMs": 1500,
+  "crossChainTimeoutMs": 6000,
+  "excludeDexs": ["lifi", "rango"],
+  "sender": "0xSenderAddress",
+  "recipient": "0xRecipientAddress"
+}
+```
+
+These timeout values are example settings; `excludeDexs` can be used independently of the timing fields. Excluding providers may leave no applicable route for a given pair; check the quote response before proceeding to build a swap.
 
 #### Quote timing parameters
 
