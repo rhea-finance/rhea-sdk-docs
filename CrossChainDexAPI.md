@@ -160,7 +160,7 @@ Supported chain families: EVM, Solana, Aptos, NEAR, Tron, Bitcoin, Zcash, and Su
 
 The product support list matches `multi-chain-lending` Trade: **25 mainnets**. Use the HTTP API chain ID for `fromChain` / `toChain` in Swap calls. Token-list endpoints use the separate numeric ID shown below; for EVM chains the two IDs are the same.
 
-| Chain | Type | HTTP / SDK chain ID | Token-list chain ID | `blockchain` alias |
+| Chain | Type | HTTP API chain ID | Token-list chain ID | `blockchain` alias |
 | --- | --- | --- | --- | --- |
 | Ethereum | EVM | `1` | `1` | `eth` |
 | Optimism | EVM | `10` | `10` | `op` |
@@ -196,7 +196,7 @@ Token coverage is dynamic and direction-specific. The from-token list combines s
 
 ### How to fetch supported tokens
 
-Token discovery uses the two HTTP endpoints below. SDK users can call `client.getFromTokens({ chainId })` and `client.getCrossChainToTokens({ chainId })`; both methods normalize the different raw responses into a consistent `SwapTokenListItem[]` format that extends `AssetRef`.
+Token discovery uses the two HTTP endpoints below.
 
 #### 1. From-token list
 
@@ -280,7 +280,7 @@ Integration rules:
 - Never build both selectors from one combined token list.
 - Do not merge tokens by symbol alone; use chain plus address, asset ID, or coin type.
 - Pass the selected chain-specific token address/ID to the quote API and still confirm route availability with `POST /api/swap/quote`.
-- SDK token-list methods cache successful results for 10 minutes per direction and chain by default; direct HTTP integrations should use a similarly short cache.
+- Cache token lists briefly per direction and chain, and refresh them regularly.
 - Invalidate a selected cross-chain tokenOut if a refreshed destination list no longer contains it.
 
 ### Native Asset Token IDs
@@ -439,15 +439,56 @@ Base fields:
 | `tokenIn` | string | Yes | Source token ID/address |
 | `tokenOut` | string | Yes | Destination token ID/address |
 | `amountIn` | string | Yes | Integer string in the token's smallest unit |
-| `quoteWaitingTimeMs` | number | No | Frontend-configurable Near Intents quote wait in milliseconds. SDK default: `3000`. See [Quote timing parameters](#quote-timing-parameters). |
-| `sameChainTimeoutMs` | number | No | Same-chain route quote timeout in milliseconds. SDK default: `500`. |
-| `crossChainTimeoutMs` | number | No | Cross-chain route quote timeout in milliseconds. SDK default: `3000`. |
+| `quoteWaitingTimeMs` | number | No | Frontend-configurable Near Intents quote wait in milliseconds. See [Quote timing parameters](#quote-timing-parameters). |
+| `sameChainTimeoutMs` | number | No | Same-chain route quote timeout in milliseconds. |
+| `crossChainTimeoutMs` | number | No | Cross-chain route quote timeout in milliseconds. |
 | `excludeDexs` | string[] | No | Routing providers to exclude from this quote request, for example `["lifi", "rango"]`. |
 | `confidentiality` | `"basic"` | No | Enables the confidential 1Click route. Omit it for a public swap. |
 | `slippage` | number | No | Basis points; `50` means 0.5% |
 | `sender` | string | Yes | Source wallet or MCA account |
 | `recipient` | string | No | Final recipient address |
 | `mca` | object | Conditional | Include only for a one-sided MCA deposit/withdraw; omit for a regular swap |
+
+#### Supported routes
+
+The quote API supports the following route identifiers. Each identifier can be passed as an item in the `excludeDexs` array on `POST /api/swap/quote` to exclude that route from quote selection. Use the exact lowercase identifiers below as API values.
+
+| Route identifier |
+| --- |
+| `bitget` |
+| `okx` |
+| `binance` |
+| `1inch` |
+| `paraswap` |
+| `kodiak` |
+| `openocean` |
+| `cow` |
+| `zerox` |
+| `jupiter` |
+| `titan` |
+| `dflow` |
+| `hyperion` |
+| `near-smart` |
+| `near-smartx` |
+| `nearintents` |
+| `preswap-nearintents` |
+| `rango` |
+| `lifi` |
+| `jumper` |
+| `bungee` |
+| `swapkit` |
+| `omnibridge` |
+| `stableflow` |
+
+Pass one or more identifiers to exclude the corresponding routes. For example, add this fragment to the quote request body to exclude Bitget, OKX, LI.FI, and Rango:
+
+```json
+{
+  "excludeDexs": ["bitget", "okx", "lifi", "rango"]
+}
+```
+
+Route availability depends on the source/destination chains, tokens, amount, and liquidity. The supported list does not guarantee that every route is available for every quote request.
 
 #### Exclude routing providers
 
@@ -482,13 +523,13 @@ These timeout values are example settings; `excludeDexs` can be used independent
 
 | Rule | Detail |
 | --- | --- |
-| Who sets it | Frontend / SDK / any HTTP client — pass it in the JSON body of `/api/swap/quote` |
+| Who sets it | Frontend / any HTTP client — pass it in the JSON body of `/api/swap/quote` |
 | Unit | Milliseconds (`number`, non-negative integer) |
-| Default when omitted | Backend / SDK commonly use `3000` (3 seconds). Prefer sending it explicitly from the frontend when Near Intents latency matters. |
+| Explicit configuration | Send the value explicitly in the request when Near Intents latency matters. |
 | Typical use | Raise the value (e.g. `5000`–`10000`) if Near Intents quotes often time out; lower it (e.g. `0`–`1000`) for snappier UX when a fast miss is acceptable |
 | Scope | Applies to the quote aggregation wait for intent routes such as `nearintents` / `preswap-nearintents`, **including MCA flows** that build deposit/withdraw previews through Near Intents (e.g. `near-mca-deposit`, `near-mca-withdraw`). MCA preview fields (`nearDepositTx`, `nearMcaWithdrawTx`, `mcaWithdrawToIntents`, etc.) are produced in the same quote request and **are also subject to this timer**. |
 
-The quote endpoint also accepts `sameChainTimeoutMs` and `crossChainTimeoutMs`. They set the timeout budgets supplied to same-chain and cross-chain route quoting respectively. All three timing fields are non-negative integer milliseconds and are quote-only: omit them from `POST /api/swap/swap`. The SDK defaults are `quoteWaitingTimeMs: 3000`, `sameChainTimeoutMs: 500`, and `crossChainTimeoutMs: 3000`.
+The quote endpoint also accepts `sameChainTimeoutMs` and `crossChainTimeoutMs`. They set the timeout budgets supplied to same-chain and cross-chain route quoting respectively. All three timing fields are non-negative integer milliseconds and are quote-only: omit them from `POST /api/swap/swap`.
 
 Example — frontend passes a longer wait for Near Intents:
 
@@ -971,7 +1012,7 @@ Rules:
 - Preview `deposit` is denominated in NEAR and must be converted to yoctoNEAR.
 - Prefer `signer_wallet` from the quote; when absent, `{ "Near": recipient }` may be used.
 - This path uses an empty string for `signature`; the NEAR wallet signs the on-chain transaction itself.
-- Resolve the status deposit address from `depositAddress` / `deposit_address` / `deposit.depositAddress` / `deposit.deposit_address` in the selected preview. When using the HTTP API directly, the on-chain transaction can still be broadcast if this address is absent, but `/order-status` cannot be called. When the SDK uses `waitFor: "completed"`, it validates this address before broadcasting and returns an error if it is missing. Use `waitFor: "source-confirmed"` to wait only for the NEAR on-chain result.
+- Resolve the status deposit address from `depositAddress` / `deposit_address` / `deposit.depositAddress` / `deposit.deposit_address` in the selected preview. The on-chain transaction can still be broadcast if this address is absent, but `/order-status` cannot be called.
 
 ## Flow: MCA Withdrawal via the Intents Relayer
 
@@ -1748,11 +1789,11 @@ Zcash `kind` may also be `utxo_transfer`.
 }
 ```
 
-When Sui `coinType` is absent, the current SDK uses `tokenIn.address` from the build response as a fallback. HTTP callers should preferably require the server to return `coinType` explicitly.
+For Sui transactions, HTTP callers should require the build response to include `coinType` explicitly.
 
 ## Complete Relayer Fetch/TypeScript Example
 
-The following example uses only the HTTP API and does not depend on the SDK:
+The following example calls the HTTP API directly using `fetch`:
 
 ```ts
 type ApiEnvelope<T> = {
