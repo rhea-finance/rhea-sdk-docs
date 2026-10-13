@@ -442,7 +442,7 @@ Base fields:
 | `quoteWaitingTimeMs` | number | No | Frontend-configurable Near Intents quote wait in milliseconds. SDK default: `3000`. See [Quote timing parameters](#quote-timing-parameters). |
 | `sameChainTimeoutMs` | number | No | Same-chain route quote timeout in milliseconds. SDK default: `500`. |
 | `crossChainTimeoutMs` | number | No | Cross-chain route quote timeout in milliseconds. SDK default: `3000`. |
-| `excludeDexs` | string[] | No | Routing providers to exclude from this quote request, for example `["lifi", "rango"]`. See [Exclude routing providers](#exclude-routing-providers). |
+| `excludeDexs` | string[] | No | Routing providers to exclude from this quote request, for example `["lifi", "rango"]`. |
 | `confidentiality` | `"basic"` | No | Enables the confidential 1Click route. Omit it for a public swap. |
 | `slippage` | number | No | Basis points; `50` means 0.5% |
 | `sender` | string | Yes | Source wallet or MCA account |
