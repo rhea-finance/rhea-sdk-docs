@@ -320,87 +320,146 @@ Address semantics in MCA flows:
 
 ## DEX and Related Contract Addresses
 
-The following registry lists the chain-specific contracts for integrated DEXes, aggregators, bridges, and RHEA execution infrastructure. Contracts are grouped by integration; when several chains share an address, they appear in the same row.
+Address snapshot: **2026-10-14 (Asia/Shanghai)**. The following registry reflects the supplied Unified Swap contract-address snapshot and its chain coverage.
 
-Integration contract coverage is separate from the unified HTTP API's [supported chain list](#supported-chains-and-tokens). For swap execution, use the approval and transaction fields returned by `POST /api/v2/swap/swap` for the selected quote. In particular, an approval spender and a settlement/verifying contract serve different roles.
+| Source status | Meaning |
+| --- | --- |
+| `live` | Read from live quote, approval, or build responses in the supplied snapshot. |
+| `static` | Taken from the project's registry or configuration. |
+| `docs` | Taken from the provider's official deployment documentation. |
 
-The Aptos network ID below is `637`; the HTTP API still uses `"aptos"` for `fromChain` / `toChain` and `900012` for token-list requests. NEAR contracts use account IDs instead of hexadecimal addresses.
+Route-specific transaction targets (`tx.to`) are snapshot values and may change with the selected route. Unverified entries are listed without a contract address.
+
+Integration contract coverage is separate from the unified HTTP API's [supported chain list](#supported-chains-and-tokens). For swap execution, use the approval and transaction fields returned by `POST /api/v2/swap/swap` for the selected quote. An approval spender and a settlement/verifying contract serve different roles.
+
+The Aptos network ID below is `637`; the HTTP API uses `"aptos"` for `fromChain` / `toChain` and `900012` for token-list requests. NEAR contracts use account IDs instead of hexadecimal addresses.
+
+### Bitget (`bitget`)
+
+`live`: transaction target (`tx.to`) / approval spender observed in the supplied snapshot.
+
+| Chains | Contract address |
+| --- | --- |
+| Ethereum (`1`), BNB Chain (`56`), Polygon (`137`), Base (`8453`), Arbitrum (`42161`) | `0xBc1D9760bd6ca468CA9fB5Ff2CFbEAC35d86c973` |
+| Optimism (`10`) | Unverified: the quote did not return `market`, so no build target was determined. |
+
+### OpenOcean (`openocean`)
+
+`docs`: official deployment table. The supplied snapshot reports matching addresses on chains where a live build was available.
+
+| Chains | Contract address |
+| --- | --- |
+| zkSync Era (`324`) | `0x36A1aCbbCAfca2468b85011DDD16E7Cb4d673230` |
+| Polygon zkEVM (`1101`) | `0x6dd434082EAB5Cd134B33719ec1FF05fE985B97b` |
+| Ethereum (`1`), Optimism (`10`), Cronos (`25`), BNB Chain (`56`), Gnosis (`100`), Unichain (`130`), Polygon (`137`), Monad (`143`), Sonic (`146`), Manta (`169`), Fantom (`250`), Metis (`1088`), Robinhood Chain (`4663`), Mantle (`5000`), Base (`8453`), Plasma (`9745`), Arbitrum (`42161`), Avalanche (`43114`), Linea (`59144`), Berachain (`80094`), Blast (`81457`), Plume (`98866`), Scroll (`534352`) | `0x6352a56caadC4F1E25CD6c75970Fa768A3304e64` |
+
+### Kodiak (`kodiak`)
+
+`live`: address observed in the supplied snapshot.
+
+| Chains | Contract address |
+| --- | --- |
+| Berachain (`80094`) | `0x43dac637c4383f91b4368041e7a8687da3806cae` |
 
 ### OKX (`okx`)
 
-| Chains | Contract address |
-| --- | --- |
-| Ethereum (`1`), Avalanche (`43114`) | `0x40aA958dd87FC8305b97f2BA922CDdCa374bcD7f` |
-| Optimism (`10`), Conflux (`1030`) | `0x68D6B739D2020067D1e2F713b999dA97E4d54812` |
-| Cronos (`25`) | `0x70cbb871e8f30fc8ce23609e9e0ea87b6b222f58` |
-| BNB Chain (`56`) | `0x2c34A2Fb1d0b4f55de51E1d0bDEfaDDce6b7cDD6` |
-| Unichain (`130`) | `0x2e28281Cf3D58f475cebE27bec4B8a23dFC7782c` |
-| Polygon (`137`) | `0x3B86917369B83a6892f553609F3c2F439C184e31` |
-| Monad (`143`) | `0xf534A8a1CAD0543Cd6438f7534CA3486c01998d4` |
-| Sonic (`146`) | `0xd321ab5589d3e8fa5df985ccfef625022e2dd910` |
-| Manta (`169`), Metis (`1088`), Mantle (`5000`), Base (`8453`), Linea (`59144`), Scroll (`534352`) | `0x57df6092665eb6058DE53939612413ff4B09114E` |
-| X Layer (`196`), Merlin (`4200`) | `0x8b773D83bc66Be128c60e07E17C8901f7a64F000` |
-| Fantom (`250`), Arbitrum (`42161`) | `0x70cBb871E8f30Fc8Ce23609E9E0Ea87B6b222F58` |
-| zkSync (`324`) | `0xc67879F4065d3B9fe1C09EE990B891Aa8E3a4c2f` |
-| HyperEVM (`999`) | `0x56e6983D59bF472Ced0E63966A14d94A3A291589` |
-| Pharos (`1672`) | `0x78466A1488f1883d71cFddd1c621351572dE0a1C` |
-| Robinhood Chain (`4663`) | `0x42170295F1173c9e5874ea9d00c6d137E1a4f53d` |
-| ZetaChain (`7000`) | `0x03B5ACdA01207824cc7Bc21783Ee5aa2B8d1D2fE` |
-| Plasma (`9745`) | `0x9FD43F5E4c24543b2eBC807321E58e6D350d6a5A` |
-| Blast (`81457`) | `0x5fD2Dc91FF1dE7FF4AEB1CACeF8E9911bAAECa68` |
-| Polygon zkEVM (`1101`) | The current API did not return a valid address. |
-
-### Kyber (`kyber`)
+`live`: transaction targets (`tx.to`) / approval spenders observed in the supplied snapshot. Unverified chains are listed without an address.
 
 | Chains | Contract address |
 | --- | --- |
-| Optimism (`10`), BNB Chain (`56`), Polygon (`137`), Monad (`143`), Arbitrum (`42161`), Avalanche (`43114`) | `0x6131B5fae19EA4f9D964eAc0408E4408b66337b5` |
+| Ethereum (`1`) | `0x8feab81d36e7576107d5de0758c1b839be31b4f6` |
+| Optimism (`10`) | `0x1f5b43127414e36c31ecb5ff5567262997cd24d0` |
+| BNB Chain (`56`) | `0x5994814f2c4040b863a0125a45de152a8c2a4dec` |
+| Unichain (`130`) | `0xe3dab8bf5187f9b4e8e89ff5414d7cf71e2c82e1` |
+| Polygon (`137`) | `0x3c4829196bfadff4394726b45159aeaac6fcd41c` |
+| Monad (`143`) | `0xc1c76e784db8d68585fb608ce68fc5dcff14000e` |
+| Sonic (`146`) | `0xd72f9af181a0eb1b8550a00124ecdb71bb758c89` |
+| X Layer (`196`) | `0x7c5bee2a8091c3ef39072f64f18fac913060aeaf` |
+| Pharos (`1672`) | `0x974d1cf6ffa4fce5a4d62955afc02f45aac29f35` |
+| Robinhood Chain (`4663`) | `0x6e2a35a7ad683cf634d91492d73bb7ff774c6919` |
+| Mantle (`5000`) | `0x472fc4f7fd3c9f06f0b8637c5505815ac80938ad` |
+| Base (`8453`) | `0x67d03631fe51b741c0c00c4e16eb662ac84381df` |
+| Plasma (`9745`) | `0xd72f9af181a0eb1b8550a00124ecdb71bb758c89` |
+| Arbitrum (`42161`) | `0x09f94b5fc68e227c323a6fbae3bd98c97fd8c849` |
+| Avalanche (`43114`) | `0xab96dcfa7a7d669d9bf5918fab8641479973dd0a` |
+| Linea (`59144`) | `0xdfcb0cecc10e78f3f3749f3f3d3ee4047b2c9829` |
+| Scroll (`534352`) | `0x6148d68ec192df0a7d36d97bdabbebb014c69938` |
+| Cronos (`25`), Manta (`169`), Fantom (`250`), zkSync Era (`324`), HyperEVM (`999`), Conflux eSpace (`1030`), Metis (`1088`), Polygon zkEVM (`1101`), Merlin (`4200`), ZetaChain (`7000`), Blast (`81457`) | Unverified: no usable ERC20 sample was available in the project token snapshot. |
+
+### KyberSwap (`kyber`)
+
+`live`: address observed in the supplied snapshot.
+
+| Chains | Contract address |
+| --- | --- |
+| Ethereum (`1`), Optimism (`10`), BNB Chain (`56`), Polygon (`137`), Monad (`143`), Sonic (`146`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`), Berachain (`80094`) | `0x6131b5fae19ea4f9d964eac0408e4408b66337b5` |
 
 ### 1inch (`1inch`)
 
-| Chains | Contract address |
+These addresses identify the approval spender (`approve/spender`). In the supplied snapshot, swap building returned HTTP 400 because the test wallet had no funds; the build target was not verified.
+
+| Chains | Approval spender |
 | --- | --- |
 | Ethereum (`1`), Optimism (`10`), Cronos (`25`), BNB Chain (`56`), Gnosis (`100`), Unichain (`130`), Polygon (`137`), Monad (`143`), Sonic (`146`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`), Linea (`59144`) | `0x111111125421ca6dc452d289314280a0f8842a65` |
-| zkSync (`324`) | `0x6fd4383cb451173d5f9304f041c7bcbf27d561ff` |
+| zkSync Era (`324`) | `0x6fd4383cb451173d5f9304f041c7bcbf27d561ff` |
 | HyperEVM (`999`) | `0x5281602adc446a94eb48d055f514a6d8d5bee176` |
 | Robinhood Chain (`4663`) | `0x5a705de8982235a7fa45bb83dcacf03a211389c7` |
 
-### ParaSwap (`paraswap`)
+### ParaSwap / Velora (`paraswap`)
 
 | Chains | Contract address |
 | --- | --- |
 | Ethereum (`1`), Optimism (`10`), BNB Chain (`56`), Gnosis (`100`), Unichain (`130`), Polygon (`137`), Robinhood Chain (`4663`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`) | `0x6a000f20005980200259b80c5102003040001068` |
 
-### CoW (`cow`)
+### CoW Protocol (`cow`)
 
-Both contracts below apply to Ethereum (`1`), BNB Chain (`56`), Gnosis (`100`), Polygon (`137`), Base (`8453`), Plasma (`9745`), Arbitrum (`42161`), Avalanche (`43114`), and Linea (`59144`).
+`static`: both contracts below apply to Ethereum (`1`), BNB Chain (`56`), Gnosis (`100`), Polygon (`137`), Base (`8453`), Plasma (`9745`), Arbitrum (`42161`), Avalanche (`43114`), Linea (`59144`).
 
 | Contract role | Address |
 | --- | --- |
-| Approval spender | `0xC92E8bdf79f0507f65a392b0ab4667716BFE0110` |
 | Settlement / EIP-712 verifying contract | `0x9008d19f58aabd9ed0d60971565aa8510560ab41` |
+| Vault relayer / approval spender | `0xC92E8bdf79f0507f65a392b0ab4667716BFE0110` |
 
 ### Sushi (`sushi`, currently disabled)
 
-This integration is disabled in the current configuration.
+`static`: this integration is disabled in the current configuration.
 
 | Chains | Contract address |
 | --- | --- |
 | Katana (`747474`) | `0xAC4c6e212A361c968F1725b4d055b47E63F80b75` |
 
-### Rango (`rango`)
+### Hyperion (`hyperion`)
 
 | Chains | Contract address |
 | --- | --- |
-| Ethereum (`1`), BNB Chain (`56`), Gnosis (`100`), Unichain (`130`), Polygon (`137`), Monad (`143`), Sonic (`146`), X Layer (`196`), Robinhood Chain (`4663`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`), Berachain (`80094`), Katana (`747474`) | `0x69460570c93f9DE5E2edbC3052bf10125f0Ca22d` |
+| Aptos (`637`) | `0x8b4a2c4bb53857c718a04c020b98f8c2e1f99a68b0f57389a8bf5434cd22e05c` |
+
+### NEAR Smart (`near-smart`)
+
+NEAR contracts use account IDs. The Ref trading recipient account and native-token wrapper have separate roles.
+
+| Contract role | Chains | Contract account ID |
+| --- | --- | --- |
+| Trading recipient account | NEAR | `v2.ref-finance.near` |
+| Native-token wrapping contract | NEAR | `wrap.near` |
+
+### NEAR SmartX (`near-smartx`)
+
+| Chains | Contract account ID |
+| --- | --- |
+| NEAR | `aggregatedex.near` |
+
+### Solana integrations
+
+Jupiter, Titan, and OKX return serialized Solana transactions rather than an EVM-style `tx.to`. The snapshot does not identify their program IDs from the outer response fields.
 
 ### LI.FI / Jumper (`lifi` / `jumper`)
 
-Both integrations use the following chain-specific addresses.
+`live` / `static`: the supplied snapshot reports live build targets matching the static registry. Both integrations use the following chain-specific addresses.
 
 | Chains | Contract address |
 | --- | --- |
-| Ethereum (`1`), BNB Chain (`56`), Gnosis (`100`), Polygon (`137`), X Layer (`196`), Base (`8453`), Optimism (`10`), Sonic (`146`), Arbitrum (`42161`), Avalanche (`43114`) | `0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE` |
+| Ethereum (`1`), Optimism (`10`), BNB Chain (`56`), Gnosis (`100`), Polygon (`137`), Sonic (`146`), X Layer (`196`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`) | `0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE` |
 | Unichain (`130`) | `0x864b314D4C5a0399368609581d3E8933a63b9232` |
 | Monad (`143`) | `0x026F252016A7C47CDEf1F05a3Fc9E20C92a49C37` |
 | Pharos (`1672`) | `0xFf70F4A1d11995621854F3692acF286d8aCd04b2` |
@@ -415,46 +474,51 @@ Both integrations use the following chain-specific addresses.
 
 | Chains | Contract address |
 | --- | --- |
-| Ethereum (`1`), BNB Chain (`56`), Gnosis (`100`), Unichain (`130`), Polygon (`137`), Monad (`143`), Sonic (`146`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`), Berachain (`80094`), Plume (`98866`) | `0x5e0f8e7337c8955d2124b8e85ca74af884b3e124` |
+| Ethereum (`1`), Optimism (`10`), BNB Chain (`56`), Gnosis (`100`), Unichain (`130`), Polygon (`137`), Monad (`143`), Sonic (`146`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`), Berachain (`80094`), Plume (`98866`) | `0x5e0f8e7337c8955d2124b8e85ca74af884b3e124` |
+
+### Rango (`rango`)
+
+| Chains | Contract address |
+| --- | --- |
+| Ethereum (`1`), Optimism (`10`), BNB Chain (`56`), Gnosis (`100`), Unichain (`130`), Polygon (`137`), Monad (`143`), Sonic (`146`), X Layer (`196`), Robinhood Chain (`4663`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`), Berachain (`80094`), Katana (`747474`) | `0x69460570c93f9DE5E2edbC3052bf10125f0Ca22d` |
 
 ### OmniBridge (`omnibridge`)
+
+`static`: target addresses for contract-mode execution.
 
 | Chains | Contract address |
 | --- | --- |
 | Ethereum (`1`) | `0xe00c629aFaCCb0510995A2B95560E446A24c85B9` |
-| BNB Chain (`56`) | `0x073C8a225c8Cf9d3f9157F5C1a1DbE02407f5720` |
-| Polygon (`137`), Base (`8453`), Arbitrum (`42161`) | `0xd025b38762B4A4E36F0Cde483b86CB13ea00D989` |
 | HyperEVM (`999`) | `0xf353b40fC144d1c6c5BCdda712fa6De833016aF9` |
 | Abstract (`2741`) | `0xd2490A00bDB97C1EDE4fdf207CFE2664AFB9C20D` |
+| BNB Chain (`56`) | `0x073C8a225c8Cf9d3f9157F5C1a1DbE02407f5720` |
+| Polygon (`137`), Base (`8453`), Arbitrum (`42161`) | `0xd025b38762B4A4E36F0Cde483b86CB13ea00D989` |
 
-### Hyperion (`hyperion`)
+Direct builds may return an order-specific `depositAddress`. Such deposit addresses are not stable contract deployments and are not listed here.
+
+### SwapKit (`swapkit`)
+
+The BNB Chain address is a `live` route target from the supplied snapshot.
 
 | Chains | Contract address |
 | --- | --- |
-| Aptos (`637`) | `0x8b4a2c4bb53857c718a04c020b98f8c2e1f99a68b0f57389a8bf5434cd22e05c` |
+| BNB Chain (`56`) | `0xb30eC53F98ff5947EDe720D32aC2da7e52A5f56b` |
+| Ethereum (`1`), Optimism (`10`), Gnosis (`100`), Polygon (`137`), zkSync Era (`324`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`), Linea (`59144`), Blast (`81457`), Scroll (`534352`) | Unverified: builds required a funded source address or rejected the sample asset/address. |
 
-### NEAR Smart (`near-smart`)
+### SODAX / StableFlow / NEAR Intents
 
-| Chains | Contract account ID |
-| --- | --- |
-| NEAR | `v2.ref-finance.near` |
-
-### NEAR SmartX (`near-smartx`)
-
-| Chains | Contract account ID |
-| --- | --- |
-| NEAR | `aggregatedex.near` |
+The supplied snapshot identifies no integrated production SODAX contract address. StableFlow and NEAR Intents use deposit or intent flows; their build results contain route- or order-specific deposit accounts rather than stable EVM contract targets, so no fixed addresses are listed for them.
 
 ### RHEA (`rhea`) and RHEA Executor (`rhea-executor`)
 
-The non-Tempo deployment group comprises Ethereum (`1`), BNB Chain (`56`), Gnosis (`100`), Unichain (`130`), Polygon (`137`), Monad (`143`), Sonic (`146`), X Layer (`196`), HyperEVM (`999`), Pharos (`1672`), Abstract (`2741`), Robinhood Chain (`4663`), Arc (`5042`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`), Berachain (`80094`), Plume (`98866`), and Katana (`747474`). Tempo (`4217`) uses separate deployments.
+`static`: default execution-layer deployments. The non-Tempo deployment group comprises Ethereum (`1`), Optimism (`10`), BNB Chain (`56`), Gnosis (`100`), Unichain (`130`), Polygon (`137`), Monad (`143`), Sonic (`146`), X Layer (`196`), HyperEVM (`999`), Pharos (`1672`), Abstract (`2741`), Robinhood Chain (`4663`), Arc (`5042`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`), Berachain (`80094`), Plume (`98866`), Katana (`747474`). Tempo (`4217`) uses separate deployments.
 
 | Contract | Chains | Address |
 | --- | --- | --- |
-| `rhea` | Non-Tempo deployment group above | `0xF206996f989b0Ef9aC7e3c469Bd123081376bE5F` |
-| `rhea` | Tempo (`4217`) | `0x2e00b148E3Cc54fD923ee3D1a29a4F26E6deD09F` |
-| `rhea-executor` | Non-Tempo deployment group above | `0xF8B87cbB6f13DCDEc57a1196c8982741fFa20Db8` |
-| `rhea-executor` | Tempo (`4217`) | `0xd0F6eCF6372F36BE3C40c00CAa4133e0C10dCCcB` |
+| Default RheaSwap (`rhea`) | Non-Tempo deployment group above | `0xF206996f989b0Ef9aC7e3c469Bd123081376bE5F` |
+| Default Executor (`rhea-executor`) | Non-Tempo deployment group above | `0xF8B87cbB6f13DCDEc57a1196c8982741fFa20Db8` |
+| RheaSwap (`rhea`) | Tempo (`4217`) | `0x2e00b148E3Cc54fD923ee3D1a29a4F26E6deD09F` |
+| Executor (`rhea-executor`) | Tempo (`4217`) | `0xd0F6eCF6372F36BE3C40c00CAa4133e0C10dCCcB` |
 
 ### RHEA Aptos (`rhea-aptos`, currently disabled)
 
