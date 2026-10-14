@@ -4,11 +4,13 @@ A TypeScript SDK for the RHEA unified multi-chain Swap API. The SDK handles quot
 
 This package is a client SDK for the RHEA Cross-Chain Swap API. For endpoint contracts, request/response fields, and protocol details, see the [Cross-Chain Swap API documentation](https://github.com/rhea-finance/rhea-sdk-docs/blob/main/CrossChainDexAPI.md).
 
+The SDK uses `POST /api/v2/swap/quote` for quotes and `POST /api/v2/swap/swap` for swap building. Order submission, reporting, order status, history, history authorization, and destination token-list requests use `/api/swap/*`. Configure `baseUrl` as the API origin, for example `https://api.rhea.finance`; the SDK appends each endpoint path.
+
 Supported chain families: EVM, Solana, Aptos, NEAR, Tron, Bitcoin, Zcash, and Sui. How to load the product token list and chain coverage is described in [Supported chains and tokens](#supported-chains-and-tokens).
 
 ## Supported chains and tokens
 
-The product support list matches `multi-chain-lending` Trade: **25 mainnets**. Use the HTTP API chain ID for `fromChain` / `toChain` in Swap calls. Token-list endpoints use the separate numeric ID shown below; for EVM chains the two IDs are the same.
+The product support list matches `multi-chain-lending` Trade: **27 mainnets**. Use the HTTP / SDK chain ID for `fromChain`, `toChain`, and `AssetRef.chain` in Swap calls. Token-list endpoints use the separate numeric ID shown below; for EVM chains the two IDs are the same.
 
 | Chain | Type | HTTP / SDK chain ID | Token-list chain ID | `blockchain` alias |
 | --- | --- | --- | --- | --- |
@@ -21,6 +23,7 @@ The product support list matches `multi-chain-lending` Trade: **25 mainnets**. U
 | Unichain | EVM | `130` | `130` | `unichain` |
 | Pharos | EVM | `1672` | `1672` | `pharos` |
 | Tempo | EVM | `4217` | `4217` | `tempo` |
+| Arc | EVM | `5042` | `5042` | `arc` |
 | BNB Smart Chain | EVM | `56` | `56` | `bsc` |
 | Gnosis Chain | EVM | `100` | `100` | `gnosis` |
 | Polygon PoS | EVM | `137` | `137` | `pol` |
@@ -28,6 +31,7 @@ The product support list matches `multi-chain-lending` Trade: **25 mainnets**. U
 | X Layer | EVM | `196` | `196` | `xlayer` |
 | Base | EVM | `8453` | `8453` | `base` |
 | Plasma | EVM | `9745` | `9745` | `plasma` |
+| HyperEVM | EVM | `999` | `999` | `hypercore` |
 | Arbitrum One | EVM | `42161` | `42161` | `arb` |
 | Berachain | EVM | `80094` | `80094` | `bera` |
 | Tron | Non-EVM | `tron` | `195` | `tron` |
@@ -37,6 +41,8 @@ The product support list matches `multi-chain-lending` Trade: **25 mainnets**. U
 | Bitcoin | Non-EVM | `btc` | `900002` | `btc` |
 | Zcash | Non-EVM | `zcash` | `900010` | `zec` |
 | Aptos | Non-EVM | `aptos` | `900012` | `aptos` |
+
+For Arc, pass `"5042"` as `fromChain` / `toChain` and use `{ chainId: 5042 }` when loading tokens. For HyperEVM, pass `"999"` as `fromChain` / `toChain` and use `{ chainId: 999 }` when loading tokens; its token metadata uses the `blockchain` alias `hypercore`. The same chain string belongs in the selected asset's `chain` field.
 
 "Supported" means the product can load tokens for that chain and send them into the unified quote flow. It does **not** guarantee a route for every pair. Live liquidity, routers, amount, and service status still decide whether a quote succeeds.
 
@@ -182,6 +188,152 @@ Integration rules:
 - Pass the selected normalized token to `client.quote()` and still confirm route availability with the quote API.
 - Invalidate a selected cross-chain tokenOut if a refreshed destination list no longer contains its chain and `address` pair.
 
+## DEX and Related Contract Addresses
+
+The following registry lists the chain-specific contracts for integrated DEXes, aggregators, bridges, and RHEA execution infrastructure. Contracts are grouped by integration; when several chains share an address, they appear in the same row.
+
+Integration contract coverage is separate from the unified HTTP API's [supported chain list](#supported-chains-and-tokens). For swap execution, pass the normalized quote to `client.swap({ quote })`. The SDK builds the swap and executes the approval and transaction fields returned for that quote. In particular, an approval spender and a settlement/verifying contract serve different roles.
+
+The Aptos network ID below is `637`; the HTTP API still uses `"aptos"` for `fromChain` / `toChain` and `900012` for token-list requests. NEAR contracts use account IDs instead of hexadecimal addresses.
+
+### OKX (`okx`)
+
+| Chains | Contract address |
+| --- | --- |
+| Ethereum (`1`), Avalanche (`43114`) | `0x40aA958dd87FC8305b97f2BA922CDdCa374bcD7f` |
+| Optimism (`10`), Conflux (`1030`) | `0x68D6B739D2020067D1e2F713b999dA97E4d54812` |
+| Cronos (`25`) | `0x70cbb871e8f30fc8ce23609e9e0ea87b6b222f58` |
+| BNB Chain (`56`) | `0x2c34A2Fb1d0b4f55de51E1d0bDEfaDDce6b7cDD6` |
+| Unichain (`130`) | `0x2e28281Cf3D58f475cebE27bec4B8a23dFC7782c` |
+| Polygon (`137`) | `0x3B86917369B83a6892f553609F3c2F439C184e31` |
+| Monad (`143`) | `0xf534A8a1CAD0543Cd6438f7534CA3486c01998d4` |
+| Sonic (`146`) | `0xd321ab5589d3e8fa5df985ccfef625022e2dd910` |
+| Manta (`169`), Metis (`1088`), Mantle (`5000`), Base (`8453`), Linea (`59144`), Scroll (`534352`) | `0x57df6092665eb6058DE53939612413ff4B09114E` |
+| X Layer (`196`), Merlin (`4200`) | `0x8b773D83bc66Be128c60e07E17C8901f7a64F000` |
+| Fantom (`250`), Arbitrum (`42161`) | `0x70cBb871E8f30Fc8Ce23609E9E0Ea87B6b222F58` |
+| zkSync (`324`) | `0xc67879F4065d3B9fe1C09EE990B891Aa8E3a4c2f` |
+| HyperEVM (`999`) | `0x56e6983D59bF472Ced0E63966A14d94A3A291589` |
+| Pharos (`1672`) | `0x78466A1488f1883d71cFddd1c621351572dE0a1C` |
+| Robinhood Chain (`4663`) | `0x42170295F1173c9e5874ea9d00c6d137E1a4f53d` |
+| ZetaChain (`7000`) | `0x03B5ACdA01207824cc7Bc21783Ee5aa2B8d1D2fE` |
+| Plasma (`9745`) | `0x9FD43F5E4c24543b2eBC807321E58e6D350d6a5A` |
+| Blast (`81457`) | `0x5fD2Dc91FF1dE7FF4AEB1CACeF8E9911bAAECa68` |
+| Polygon zkEVM (`1101`) | The current API did not return a valid address. |
+
+### Kyber (`kyber`)
+
+| Chains | Contract address |
+| --- | --- |
+| Optimism (`10`), BNB Chain (`56`), Polygon (`137`), Monad (`143`), Arbitrum (`42161`), Avalanche (`43114`) | `0x6131B5fae19EA4f9D964eAc0408E4408b66337b5` |
+
+### 1inch (`1inch`)
+
+| Chains | Contract address |
+| --- | --- |
+| Ethereum (`1`), Optimism (`10`), Cronos (`25`), BNB Chain (`56`), Gnosis (`100`), Unichain (`130`), Polygon (`137`), Monad (`143`), Sonic (`146`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`), Linea (`59144`) | `0x111111125421ca6dc452d289314280a0f8842a65` |
+| zkSync (`324`) | `0x6fd4383cb451173d5f9304f041c7bcbf27d561ff` |
+| HyperEVM (`999`) | `0x5281602adc446a94eb48d055f514a6d8d5bee176` |
+| Robinhood Chain (`4663`) | `0x5a705de8982235a7fa45bb83dcacf03a211389c7` |
+
+### ParaSwap (`paraswap`)
+
+| Chains | Contract address |
+| --- | --- |
+| Ethereum (`1`), Optimism (`10`), BNB Chain (`56`), Gnosis (`100`), Unichain (`130`), Polygon (`137`), Robinhood Chain (`4663`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`) | `0x6a000f20005980200259b80c5102003040001068` |
+
+### CoW (`cow`)
+
+Both contracts below apply to Ethereum (`1`), BNB Chain (`56`), Gnosis (`100`), Polygon (`137`), Base (`8453`), Plasma (`9745`), Arbitrum (`42161`), Avalanche (`43114`), and Linea (`59144`).
+
+| Contract role | Address |
+| --- | --- |
+| Approval spender | `0xC92E8bdf79f0507f65a392b0ab4667716BFE0110` |
+| Settlement / EIP-712 verifying contract | `0x9008d19f58aabd9ed0d60971565aa8510560ab41` |
+
+### Sushi (`sushi`, currently disabled)
+
+This integration is disabled in the current configuration.
+
+| Chains | Contract address |
+| --- | --- |
+| Katana (`747474`) | `0xAC4c6e212A361c968F1725b4d055b47E63F80b75` |
+
+### Rango (`rango`)
+
+| Chains | Contract address |
+| --- | --- |
+| Ethereum (`1`), BNB Chain (`56`), Gnosis (`100`), Unichain (`130`), Polygon (`137`), Monad (`143`), Sonic (`146`), X Layer (`196`), Robinhood Chain (`4663`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`), Berachain (`80094`), Katana (`747474`) | `0x69460570c93f9DE5E2edbC3052bf10125f0Ca22d` |
+
+### LI.FI / Jumper (`lifi` / `jumper`)
+
+Both integrations use the following chain-specific addresses.
+
+| Chains | Contract address |
+| --- | --- |
+| Ethereum (`1`), BNB Chain (`56`), Gnosis (`100`), Polygon (`137`), X Layer (`196`), Base (`8453`), Optimism (`10`), Sonic (`146`), Arbitrum (`42161`), Avalanche (`43114`) | `0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE` |
+| Unichain (`130`) | `0x864b314D4C5a0399368609581d3E8933a63b9232` |
+| Monad (`143`) | `0x026F252016A7C47CDEf1F05a3Fc9E20C92a49C37` |
+| Pharos (`1672`) | `0xFf70F4A1d11995621854F3692acF286d8aCd04b2` |
+| Tempo (`4217`) | `0x2cAcAE8e22418E65dcf7651c67aEbe6288EB8243` |
+| Robinhood Chain (`4663`) | `0xB477751B76CF82d00a686A1232f5fCD772414Af3` |
+| Arc (`5042`) | `0xA4072583658Fae592A3506A42431cb6316a8d40b` |
+| Berachain (`80094`) | `0xf909c4Ae16622898b885B89d7F839E0244851c66` |
+| Plume (`98866`) | `0x6f5C8Bb0C5Fe4ECeAC40EE1C238EaB6bbb29761c` |
+| Katana (`747474`) | `0xC59fe32C9549e3E8B5dCcdAbC45BD287Bd5bA2bc` |
+
+### Bungee (`bungee`)
+
+| Chains | Contract address |
+| --- | --- |
+| Ethereum (`1`), BNB Chain (`56`), Gnosis (`100`), Unichain (`130`), Polygon (`137`), Monad (`143`), Sonic (`146`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`), Berachain (`80094`), Plume (`98866`) | `0x5e0f8e7337c8955d2124b8e85ca74af884b3e124` |
+
+### OmniBridge (`omnibridge`)
+
+| Chains | Contract address |
+| --- | --- |
+| Ethereum (`1`) | `0xe00c629aFaCCb0510995A2B95560E446A24c85B9` |
+| BNB Chain (`56`) | `0x073C8a225c8Cf9d3f9157F5C1a1DbE02407f5720` |
+| Polygon (`137`), Base (`8453`), Arbitrum (`42161`) | `0xd025b38762B4A4E36F0Cde483b86CB13ea00D989` |
+| HyperEVM (`999`) | `0xf353b40fC144d1c6c5BCdda712fa6De833016aF9` |
+| Abstract (`2741`) | `0xd2490A00bDB97C1EDE4fdf207CFE2664AFB9C20D` |
+
+### Hyperion (`hyperion`)
+
+| Chains | Contract address |
+| --- | --- |
+| Aptos (`637`) | `0x8b4a2c4bb53857c718a04c020b98f8c2e1f99a68b0f57389a8bf5434cd22e05c` |
+
+### NEAR Smart (`near-smart`)
+
+| Chains | Contract account ID |
+| --- | --- |
+| NEAR | `v2.ref-finance.near` |
+
+### NEAR SmartX (`near-smartx`)
+
+| Chains | Contract account ID |
+| --- | --- |
+| NEAR | `aggregatedex.near` |
+
+### RHEA (`rhea`) and RHEA Executor (`rhea-executor`)
+
+The non-Tempo deployment group comprises Ethereum (`1`), BNB Chain (`56`), Gnosis (`100`), Unichain (`130`), Polygon (`137`), Monad (`143`), Sonic (`146`), X Layer (`196`), HyperEVM (`999`), Pharos (`1672`), Abstract (`2741`), Robinhood Chain (`4663`), Arc (`5042`), Base (`8453`), Arbitrum (`42161`), Avalanche (`43114`), Berachain (`80094`), Plume (`98866`), and Katana (`747474`). Tempo (`4217`) uses separate deployments.
+
+| Contract | Chains | Address |
+| --- | --- | --- |
+| `rhea` | Non-Tempo deployment group above | `0xF206996f989b0Ef9aC7e3c469Bd123081376bE5F` |
+| `rhea` | Tempo (`4217`) | `0x2e00b148E3Cc54fD923ee3D1a29a4F26E6deD09F` |
+| `rhea-executor` | Non-Tempo deployment group above | `0xF8B87cbB6f13DCDEc57a1196c8982741fFa20Db8` |
+| `rhea-executor` | Tempo (`4217`) | `0xd0F6eCF6372F36BE3C40c00CAa4133e0C10dCCcB` |
+
+### RHEA Aptos (`rhea-aptos`, currently disabled)
+
+This integration is disabled in the current configuration.
+
+| Chains | Contract address |
+| --- | --- |
+| Aptos (`637`) | `0xfc1e275a813dfefd49d4995818ac8ea7bbd0089ff28d5e0e1762f372e8cb0d5f` |
+
 ## 1. What the SDK does
 
 The recommended flow has only two steps:
@@ -298,6 +450,7 @@ const quoteRequest: QuoteRequest = {
   quoteWaitingTimeMs: 3000,
   sameChainTimeoutMs: 500,
   crossChainTimeoutMs: 3000,
+  excludeDexs: ["lifi", "rango"],
   sender: "0xYourBaseAddress",
   recipient: "YourSolanaAddress",
 };
@@ -305,7 +458,7 @@ const quoteRequest: QuoteRequest = {
 const quote = await client.quote(quoteRequest);
 ```
 
-`quote()` calls `POST /api/swap/quote`. The frontend can configure the Near Intents wait plus the same-chain and cross-chain route timeouts on every `QuoteRequest`. The SDK sends the defaults shown above when fields are omitted.
+`quote()` calls `POST /api/v2/swap/quote`. The frontend can configure the Near Intents wait plus the same-chain and cross-chain route timeouts on every `QuoteRequest`. The SDK sends the defaults shown above when fields are omitted.
 
 Set `confidentiality: "basic"` to use the confidential 1Click route. The SDK preserves it through quote and build, and includes it in automatic or manual report payloads. Omit the field for public swaps:
 
@@ -336,7 +489,54 @@ const quote = await client.quote({
 | `sameChainTimeoutMs` | `500` | Timeout budget supplied to same-chain quote routing. |
 | `crossChainTimeoutMs` | `3000` | Timeout budget supplied to cross-chain quote routing. |
 
-All three values use milliseconds and must be non-negative integers. They affect only `POST /api/swap/quote`; the SDK removes them from the subsequent build request. They do **not** control the SDK HTTP timeout, wallet signing, source-chain confirmation, bridge settlement, or order polling. Keep the client's `timeoutMs` above the configured quote budget plus network overhead.
+All three values use milliseconds and must be non-negative integers. They affect only `POST /api/v2/swap/quote`; the SDK removes them from the subsequent build request. They do **not** control the SDK HTTP timeout, wallet signing, source-chain confirmation, bridge settlement, or order polling. Keep the client's `timeoutMs` above the configured quote budget plus network overhead.
+
+#### 3.3.2 Exclude routing providers
+
+`excludeDexs` is an optional first-class `QuoteRequest` field. Pass a string array directly to `client.quote()` to exclude routing providers from quote selection. Omit it when no provider exclusion is needed. Use the exact lowercase route identifiers below.
+
+| Route identifier |
+| --- |
+| `bitget` |
+| `okx` |
+| `binance` |
+| `1inch` |
+| `paraswap` |
+| `kodiak` |
+| `openocean` |
+| `cow` |
+| `zerox` |
+| `jupiter` |
+| `titan` |
+| `dflow` |
+| `hyperion` |
+| `near-smart` |
+| `near-smartx` |
+| `nearintents` |
+| `preswap-nearintents` |
+| `rango` |
+| `lifi` |
+| `jumper` |
+| `bungee` |
+| `swapkit` |
+| `omnibridge` |
+| `stableflow` |
+| `kyber` |
+
+For example, exclude Bitget, OKX, LI.FI, Rango, and Kyber:
+
+```ts
+const quote = await client.quote({
+  ...quoteRequest,
+  excludeDexs: ["bitget", "okx", "lifi", "rango", "kyber"],
+});
+
+const result = await client.swap({ quote });
+```
+
+The SDK forwards the array as the top-level `excludeDexs` field in the quote request body. Use an array such as `["lifi", "rango"]`; pass this field directly on `QuoteRequest` rather than in `extensions` or executor configuration. Include the same array when requesting a refreshed quote to keep the same exclusions.
+
+Route exclusions can be configured independently of `quoteWaitingTimeMs`, `sameChainTimeoutMs`, and `crossChainTimeoutMs`. Excluding providers may leave no applicable route for a given pair. Route availability depends on the source/destination chains, tokens, amount, and liquidity; the supported list does not guarantee every route is available for every quote request.
 
 ### 3.4 Execute the swap directly
 
@@ -447,6 +647,7 @@ Terminal statuses are `completed`, `failed`, `refunded`, and `expired`.
 | `quoteWaitingTimeMs` | `number` | No | Near Intents quote wait in milliseconds. Must be a non-negative integer. Default: `3000`. See [Configure quote timing](#331-configure-quote-timing). |
 | `sameChainTimeoutMs` | `number` | No | Same-chain route quote timeout in milliseconds. Must be a non-negative integer. Default: `500`. |
 | `crossChainTimeoutMs` | `number` | No | Cross-chain route quote timeout in milliseconds. Must be a non-negative integer. Default: `3000`. |
+| `excludeDexs` | `string[]` | No | Routing providers to exclude from quote selection, for example `["lifi", "rango", "kyber"]`. |
 | `confidentiality` | `"basic"` | No | Enables the confidential 1Click route and marks the resulting report. Omit for public swaps. |
 | `sender` | `string` | Yes | Sender address on the source chain. |
 | `recipient` | `string` | No | Recipient address on the destination chain. Cross-chain requests should normally provide it explicitly. |
