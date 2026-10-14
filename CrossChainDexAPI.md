@@ -158,7 +158,7 @@ Supported chain families: EVM, Solana, Aptos, NEAR, Tron, Bitcoin, Zcash, and Su
 
 ## Supported chains and tokens
 
-The product support list matches `multi-chain-lending` Trade: **25 mainnets**. Use the HTTP API chain ID for `fromChain` / `toChain` in Swap calls. Token-list endpoints use the separate numeric ID shown below; for EVM chains the two IDs are the same.
+The product support list matches `multi-chain-lending` Trade: **27 mainnets**. Use the HTTP API chain ID for `fromChain` / `toChain` in Swap calls. Token-list endpoints use the separate numeric ID shown below; for EVM chains the two IDs are the same.
 
 | Chain | Type | HTTP API chain ID | Token-list chain ID | `blockchain` alias |
 | --- | --- | --- | --- | --- |
@@ -171,6 +171,7 @@ The product support list matches `multi-chain-lending` Trade: **25 mainnets**. U
 | Unichain | EVM | `130` | `130` | `unichain` |
 | Pharos | EVM | `1672` | `1672` | `pharos` |
 | Tempo | EVM | `4217` | `4217` | `tempo` |
+| Arc | EVM | `5042` | `5042` | `arc` |
 | BNB Smart Chain | EVM | `56` | `56` | `bsc` |
 | Gnosis Chain | EVM | `100` | `100` | `gnosis` |
 | Polygon PoS | EVM | `137` | `137` | `pol` |
@@ -178,6 +179,7 @@ The product support list matches `multi-chain-lending` Trade: **25 mainnets**. U
 | X Layer | EVM | `196` | `196` | `xlayer` |
 | Base | EVM | `8453` | `8453` | `base` |
 | Plasma | EVM | `9745` | `9745` | `plasma` |
+| HyperEVM | EVM | `999` | `999` | `hypercore` |
 | Arbitrum One | EVM | `42161` | `42161` | `arb` |
 | Berachain | EVM | `80094` | `80094` | `bera` |
 | Tron | Non-EVM | `tron` | `195` | `tron` |
@@ -187,6 +189,8 @@ The product support list matches `multi-chain-lending` Trade: **25 mainnets**. U
 | Bitcoin | Non-EVM | `btc` | `900002` | `btc` |
 | Zcash | Non-EVM | `zcash` | `900010` | `zec` |
 | Aptos | Non-EVM | `aptos` | `900012` | `aptos` |
+
+For Arc, pass `"5042"` as `fromChain` / `toChain` and use `chain=5042` for token-list requests. For HyperEVM, pass `"999"` as `fromChain` / `toChain` and use `chain=999` for token-list requests; its token metadata uses the `blockchain` alias `hypercore`.
 
 "Supported" means the product can load tokens for that chain and send them into the unified quote flow. It does **not** guarantee a route for every pair. Live liquidity, routers, amount, and service status still decide whether a quote succeeds.
 
@@ -479,12 +483,13 @@ The quote API supports the following route identifiers. Each identifier can be p
 | `swapkit` |
 | `omnibridge` |
 | `stableflow` |
+| `kyber` |
 
-Pass one or more identifiers to exclude the corresponding routes. For example, add this fragment to the quote request body to exclude Bitget, OKX, LI.FI, and Rango:
+Pass one or more identifiers to exclude the corresponding routes. For example, add this fragment to the quote request body to exclude Bitget, OKX, LI.FI, Rango, and Kyber:
 
 ```json
 {
-  "excludeDexs": ["bitget", "okx", "lifi", "rango"]
+  "excludeDexs": ["bitget", "okx", "lifi", "rango", "kyber"]
 }
 ```
 
